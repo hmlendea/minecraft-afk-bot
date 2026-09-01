@@ -24,6 +24,7 @@ An automated Minecraft AFK bot powered by Mineflayer to maintain active presence
   - [Dependencies](#dependencies)
 - [Architecture](#-architecture)
 - [Contributing](#-contributing)
+- [Security](#-security)
 - [Project Engagement](#-project-engagement)
 - [License](#-license)
 
@@ -143,7 +144,11 @@ When doing so, please:
 - Maintain your branch synchronised with `master`
 - Revise the documentation when functionality changes
 
-## 💝 Project Engagement
+## � Security
+
+For information on reporting security vulnerabilities, see [SECURITY.md](./SECURITY.md).
+
+## �💝 Project Engagement
 
 Discovered a problem or have a suggestion? [Open an issue](https://github.com/hmlendea/minecraft-afk-bot/issues)!
 
