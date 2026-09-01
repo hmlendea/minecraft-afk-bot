@@ -1,0 +1,28 @@
+{
+    "server": {
+        "host": "mc.nucilandia.ro",
+        "port": 25565,
+        "version": "1.20.1"
+    },
+    "credentials": {
+        "username": "YourUsername",
+        "password": "YourPassword"
+    },
+    "zones": [
+        "zone_one_farm",
+        "zone_two_farm"
+    ],
+    "schedule": {
+        "startHour": 1,
+        "startMinute": 30,
+        "endHour": 17,
+        "endMinute": 0,
+        "skipProbability": 0.8
+    },
+    "session": {
+        "minimumOnlineMinutes": 30,
+        "maximumOnlineMinutes": 120,
+        "spawnDelayMilliseconds": 5000,
+        "commandDelayMilliseconds": 5000
+    }
+}
