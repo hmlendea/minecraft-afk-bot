@@ -22,6 +22,7 @@ An automated Minecraft AFK bot powered by Mineflayer to maintain active presence
   - [Run](#run)
   - [Test](#test)
   - [Dependencies](#dependencies)
+- [Architecture](#-architecture)
 - [Contributing](#-contributing)
 - [Project Engagement](#-project-engagement)
 - [License](#-license)
@@ -127,6 +128,10 @@ npm test
 | Package | Version | Scope | Purpose |
 |---------|---------|-------|---------|
 | `mineflayer` | `^4.37.0` | Runtime | Minecraft bot API for connecting and interacting with Minecraft servers. |
+
+## 🏗️ Architecture
+
+See the [architecture documentation](./ARCHITECTURE.md) for the system context, principal components, runtime flows, ownership boundaries, dependencies, constraints, and extension points.
 
 ## 🤝 Contributing
 
