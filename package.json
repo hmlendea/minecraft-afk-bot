@@ -4,7 +4,8 @@
   "description": "An automated Minecraft AFK bot powered by Mineflayer to maintain active presence across configured server zones.",
   "main": "bot.js",
   "scripts": {
-    "start": "node bot.js"
+    "start": "node bot.js",
+    "build": "node -c bot.js"
   },
   "repository": {
     "type": "git",

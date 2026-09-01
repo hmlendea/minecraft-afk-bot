@@ -1,3 +1,4 @@
+[![Build Status](https://github.com/hmlendea/minecraft-afk-bot/actions/workflows/build.yml/badge.svg)](https://github.com/hmlendea/minecraft-afk-bot/actions/workflows/build.yml)
 [![License](https://img.shields.io/github/license/hmlendea/minecraft-afk-bot)](https://github.com/hmlendea/minecraft-afk-bot/blob/master/LICENSE)
 
 # Minecraft AFK Bot
