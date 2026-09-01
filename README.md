@@ -19,6 +19,7 @@ An automated Minecraft AFK bot powered by Mineflayer to maintain active presence
   - [Requirements](#requirements)
   - [Setup](#setup)
   - [Run](#run)
+  - [Test](#test)
   - [Dependencies](#dependencies)
 - [Contributing](#-contributing)
 - [Project Engagement](#-project-engagement)
@@ -110,6 +111,14 @@ Start the bot locally:
 
 ```bash
 node bot.js
+```
+
+### Test
+
+Execute the unit test suite:
+
+```bash
+npm test
 ```
 
 ### Dependencies
