@@ -1,3 +1,4 @@
+[![Donate](https://img.shields.io/badge/-%E2%99%A5%20Donate-%23ff69b4)](https://hmlendea.go.ro/funding)
 [![Build Status](https://github.com/hmlendea/minecraft-afk-bot/actions/workflows/build.yml/badge.svg)](https://github.com/hmlendea/minecraft-afk-bot/actions/workflows/build.yml)
 [![License](https://img.shields.io/github/license/hmlendea/minecraft-afk-bot)](https://github.com/hmlendea/minecraft-afk-bot/blob/master/LICENSE)
 
@@ -141,7 +142,9 @@ When doing so, please:
 
 Discovered a problem or have a suggestion? [Open an issue](https://github.com/hmlendea/minecraft-afk-bot/issues)!
 
-If you find this project useful, consider starring ⭐️ it on GitHub!
+If you find this project useful, consider [funding it](https://hmlendea.go.ro/funding) or starring ⭐️ it on GitHub!
+
+[![Donate](https://raw.githubusercontent.com/hmlendea/readme-assets/master/donate_generic.png)](https://hmlendea.go.ro/funding)
 
 ## 📄 License
 
