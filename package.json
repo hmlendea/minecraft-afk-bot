@@ -5,7 +5,8 @@
   "main": "bot.js",
   "scripts": {
     "start": "node bot.js",
-    "build": "node -c bot.js"
+    "build": "node -c bot.js",
+    "test": "node --test"
   },
   "repository": {
     "type": "git",

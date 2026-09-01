@@ -3,41 +3,84 @@ const fileSystem = require('fs')
 const pathModule = require('path')
 const mineflayer = require('mineflayer')
 
-const configurationFilePath = pathModule.join(__dirname, 'configuration.json')
-const configurationTemplateFilePath = pathModule.join(__dirname, 'configuration.example.json')
+const DEFAULT_CONFIGURATION_FILE_NAME = 'configuration.json'
+const DEFAULT_CONFIGURATION_TEMPLATE_FILE_NAME = 'configuration.example.json'
+const MINUTES_PER_HOUR = 60
+const SECONDS_PER_MINUTE = 60
+const MILLISECONDS_PER_SECOND = 1000
+const ZERO_MILLISECONDS = 0
 
-if (!fileSystem.existsSync(configurationFilePath) && fileSystem.existsSync(configurationTemplateFilePath)) {
-    fileSystem.copyFileSync(configurationTemplateFilePath, configurationFilePath)
-    console.log('Generated `configuration.json` from the `configuration.example.json` template.')
+function ensureConfigurationExists(
+    configurationFilePath = pathModule.join(__dirname, DEFAULT_CONFIGURATION_FILE_NAME),
+    configurationTemplateFilePath = pathModule.join(__dirname, DEFAULT_CONFIGURATION_TEMPLATE_FILE_NAME)
+) {
+    if (!fileSystem.existsSync(configurationFilePath) && fileSystem.existsSync(configurationTemplateFilePath)) {
+        fileSystem.copyFileSync(configurationTemplateFilePath, configurationFilePath)
+        console.log('Generated `configuration.json` from the `configuration.example.json` template.')
+    }
 }
 
-const configuration = require('./configuration.json')
+function loadConfiguration(configurationFilePath = pathModule.join(__dirname, DEFAULT_CONFIGURATION_FILE_NAME)) {
+    ensureConfigurationExists(
+        configurationFilePath,
+        pathModule.join(pathModule.dirname(configurationFilePath), DEFAULT_CONFIGURATION_TEMPLATE_FILE_NAME)
+    )
 
-// =========================
-// Helpers
-// =========================
+    const rawConfigurationContent = fileSystem.readFileSync(configurationFilePath, 'utf8')
+    return JSON.parse(rawConfigurationContent)
+}
+
 function pause(milliseconds) {
+    if (milliseconds <= ZERO_MILLISECONDS) {
+        return Promise.resolve()
+    }
+
     return new Promise(resolve => setTimeout(resolve, milliseconds))
 }
 
 function randomInteger(minimum, maximum) {
+    if (minimum > maximum) {
+        throw new RangeError('The minimum bound cannot exceed the maximum bound.')
+    }
+
     return Math.floor(Math.random() * (maximum - minimum + 1)) + minimum
 }
 
 function randomChoice(array) {
+    if (!Array.isArray(array) || array.length === 0) {
+        throw new TypeError('An array with at least one element is required.')
+    }
+
     return array[Math.floor(Math.random() * array.length)]
 }
 
-function isRestrictedByTimeWindow(currentDate = new Date()) {
-    const { startHour, startMinute, endHour, endMinute } = configuration.schedule
-    const currentMinutes = currentDate.getHours() * 60 + currentDate.getMinutes()
-    const startMinutes = startHour * 60 + startMinute
-    const endMinutes = endHour * 60 + endMinute
+function isRestrictedByTimeWindow(currentDate, scheduleConfiguration) {
+    if (!scheduleConfiguration) {
+        return false
+    }
 
-    return currentMinutes >= startMinutes && currentMinutes < endMinutes
+    const { startHour, startMinute, endHour, endMinute } = scheduleConfiguration
+    const evaluatedDate = currentDate || new Date()
+    const currentMinutes = evaluatedDate.getHours() * MINUTES_PER_HOUR + evaluatedDate.getMinutes()
+    const startMinutes = startHour * MINUTES_PER_HOUR + startMinute
+    const endMinutes = endHour * MINUTES_PER_HOUR + endMinute
+
+    if (startMinutes === endMinutes) {
+        return false
+    }
+
+    if (startMinutes < endMinutes) {
+        return currentMinutes >= startMinutes && currentMinutes < endMinutes
+    }
+
+    return currentMinutes >= startMinutes || currentMinutes < endMinutes
 }
 
 async function executeCommand(bot, command, delayMilliseconds) {
+    if (!bot || typeof bot.chat !== 'function') {
+        throw new TypeError('A valid bot instance with a chat method is required.')
+    }
+
     console.log(`Executing command: ${command}`)
     bot.chat(command)
     await pause(delayMilliseconds)
@@ -46,26 +89,28 @@ async function executeCommand(bot, command, delayMilliseconds) {
 // =========================
 // Main
 // =========================
-async function main() {
-    if (isRestrictedByTimeWindow()) {
+async function main(customConfiguration, botFactory = mineflayer.createBot, randomSupplier = Math.random) {
+    const configuration = customConfiguration || loadConfiguration()
+
+    if (isRestrictedByTimeWindow(new Date(), configuration.schedule)) {
         const { startHour, startMinute, endHour, endMinute } = configuration.schedule
         const startHourFormatted = startHour.toString().padStart(2, '0')
         const startMinuteFormatted = startMinute.toString().padStart(2, '0')
         const endHourFormatted = endHour.toString().padStart(2, '0')
         const endMinuteFormatted = endMinute.toString().padStart(2, '0')
         console.log(`The current time falls within the restricted execution window (${startHourFormatted}:${startMinuteFormatted} - ${endHourFormatted}:${endMinuteFormatted}). The bot will not execute.`)
-        return
+        return null
     }
 
-    if (Math.random() < configuration.schedule.skipProbability) {
+    if (randomSupplier() < configuration.schedule.skipProbability) {
         console.log(`${configuration.schedule.skipProbability * 100}% random skip condition triggered. The bot will not execute.`)
-        return
+        return null
     }
 
     const selectedZone = randomChoice(configuration.zones)
     console.log(`Selected zone: ${selectedZone}`)
 
-    const bot = mineflayer.createBot({
+    const bot = botFactory({
         host: configuration.server.host,
         port: configuration.server.port,
         username: configuration.credentials.username,
@@ -93,7 +138,7 @@ async function main() {
                 configuration.session.maximumOnlineMinutes
             )
             console.log(`Remaining online for ${onlineMinutes} minutes.`)
-            await pause(onlineMinutes * 60 * 1000)
+            await pause(onlineMinutes * SECONDS_PER_MINUTE * MILLISECONDS_PER_SECOND)
 
             isCompleted = true
             console.log('Disconnecting from the server.')
@@ -120,8 +165,24 @@ async function main() {
             console.log('The bot session has concluded.')
         }
     })
+
+    return bot
 }
 
-main().catch(error => {
-    console.error('A fatal error has occurred during bot execution:', error)
-})
+if (require.main === module) {
+    main().catch(error => {
+        console.error('A fatal error has occurred during bot execution:', error)
+    })
+}
+
+module.exports = {
+    pause,
+    randomInteger,
+    randomChoice,
+    isRestrictedByTimeWindow,
+    executeCommand,
+    ensureConfigurationExists,
+    loadConfiguration,
+    main
+}
+
