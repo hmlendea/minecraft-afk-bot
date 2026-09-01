@@ -1,0 +1,28 @@
+{
+  "name": "minecraft-afk-bot",
+  "version": "1.0.0",
+  "description": "An automated Minecraft AFK bot powered by Mineflayer to maintain active presence across configured server zones.",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hmlendea/minecraft-afk-bot.git"
+  },
+  "keywords": [
+    "minecraft",
+    "afk",
+    "bot",
+    "mineflayer"
+  ],
+  "author": "hmlendea",
+  "license": "GPL-3.0-or-later",
+  "bugs": {
+    "url": "https://github.com/hmlendea/minecraft-afk-bot/issues"
+  },
+  "homepage": "https://github.com/hmlendea/minecraft-afk-bot#readme",
+  "dependencies": {
+    "mineflayer": "^4.37.0"
+  }
+}
