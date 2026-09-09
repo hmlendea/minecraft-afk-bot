@@ -17,6 +17,7 @@ This document describes the current architecture, component responsibilities, ru
 - [Interfaces and Integrations](#interfaces-and-integrations)
 - [Key Flows](#key-flows)
   - [Session Lifecycle Flow](#session-lifecycle-flow)
+  - [Night Sleep Flow](#night-sleep-flow)
 - [Cross-Cutting Concerns](#cross-cutting-concerns)
   - [Security and Privacy](#security-and-privacy)
   - [Error Handling](#error-handling)
@@ -102,6 +103,15 @@ sequenceDiagram
     Bot->>Server: Send /op command
     Bot->>Server: Send /god command
     Bot->>Server: Send /zone tp <selectedZone> command
+    loop Each day-to-night transition
+      Bot->>Bot: Evaluate configured sleep probability
+      opt Sleep is selected
+        Bot->>Server: Send /bed command
+        Bot->>Server: Activate bed block beneath bot
+        Server-->>Bot: Emit daytime time event
+            Bot->>Server: Send /zone tp <selectedZone> command
+      end
+    end
     Bot->>Bot: Pause for calculated session duration
     Bot->>Server: bot.quit('Completed')
 ```
@@ -112,10 +122,12 @@ The principal runtime sequence is:
 3. Probability evaluation against `schedule.skipProbability` to determine if the random skip condition triggers.
 4. Selection of a target zone via `randomChoice()` from the configured zone array.
 5. Bot instantiation via `mineflayer.createBot()`.
-6. Event listener registration for `login`, `spawn`, `kicked`, `error`, and `end` events.
+6. Event listener registration for `login`, `spawn`, `time`, `kicked`, `error`, and `end` events.
 7. Upon the `spawn` event, sequential execution of `/auth`, `/op`, `/god`, and `/zone tp` commands with configured delay intervals.
-8. Timed presence pause for a random duration between `minimumOnlineMinutes` and `maximumOnlineMinutes`.
-9. Session conclusion and graceful disconnect via `bot.quit('Completed')`.
+8. For each day-to-night transition, one probability evaluation determines whether the bot executes `/bed` and activates the bed block beneath it.
+9. After a selected sleep attempt, the subsequent night-to-day transition teleports the bot to the selected zone once.
+10. Timed presence pause for a random duration between `minimumOnlineMinutes` and `maximumOnlineMinutes`.
+11. Session conclusion and graceful disconnect via `bot.quit('Completed')`.
 
 ## 🧩 Components
 
@@ -125,6 +137,8 @@ The principal runtime sequence is:
 | `isRestrictedByTimeWindow` | Evaluates whether current date and time fall within the restricted execution window. | Date API | Pure helper function invoked during main execution. |
 | `main` | Orchestrates schedule evaluations, bot instantiation, event listeners, command sequences, and teardown. | `mineflayer`, `fs`, `path` | Primary process orchestrator function. |
 | `executeCommand` | Dispatches in-game chat commands and pauses for specified delay intervals. | `mineflayer` Bot instance | Asynchronous helper function invoked during session execution. |
+| `registerNightSleepHandler` | Detects day and night transitions, evaluates sleep probability, and serialises sleep and return operations. | `mineflayer` time events | One listener per spawned bot session. |
+| `activateBedUnderBot` | Resolves and activates the bed block directly beneath the bot. | `mineflayer` block interaction API | Transient invocation during a selected night. |
 
 ## 🗂️ Architectural Areas
 
@@ -182,13 +196,15 @@ graph LR
 | `configuration.example.json` | Repository | File on disk (JSON format) | Immutable version-controlled template. |
 | `configuration.json` | Application Host | File on disk (JSON format) | Local file created on demand or edited by operator. |
 | Configuration Object | [bot.js](bot.js) | In-memory JavaScript Object | Created at process startup and discarded at process exit. |
+| Night Sleep State | `registerNightSleepHandler` | In-memory transition state and promise sequence | Created after zone teleportation and discarded when the bot session ends. |
 
 ## 🔌 Interfaces and Integrations
 
 | Interface or Integration | Direction | Contract | Owner | Failure Semantics |
 |--------------------------|-----------|----------|-------|-------------------|
 | Minecraft Server TCP | Bidirectional | Minecraft Protocol (Port 25565) | `mineflayer` | Logs error or kick events and terminates process. |
-| Chat Commands | Outbound | Minecraft In-Game Commands (`/auth`, `/op`, `/god`, `/zone tp`) | `executeCommand` | Logs command error and issues `bot.quit('Error')`. |
+| Chat Commands | Outbound | Minecraft In-Game Commands (`/auth`, `/op`, `/god`, `/zone tp`, `/bed`) | `executeCommand` | Spawn-sequence failures terminate the session; sleep-sequence failures are logged without terminating it. |
+| Time Events | Inbound | Mineflayer `time` event and `bot.time.isDay` state | `registerNightSleepHandler` | Invalid time states are ignored; sleep-sequence failures are logged. |
 
 ## 🔀 Key Flows
 
@@ -212,6 +228,32 @@ sequenceDiagram
 ```
 
 The session lifecycle flow executes sequentially after connection establishment. If an exception occurs during the spawn command chain, the exception is caught, logged to standard error, and the process issues `bot.quit('Error')` to ensure clean disconnection.
+
+### Night Sleep Flow
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant Server as Minecraft Server
+  participant Handler as Night Sleep Handler
+  participant Bot as Mineflayer Bot
+
+  Server-->>Handler: Time event changes day to night
+  Handler->>Handler: Evaluate sleep.probability once
+  opt Selected to sleep
+    Handler->>Bot: Send /bed
+    Handler->>Bot: Resolve bed block beneath entity
+    alt Bed is available
+      Handler->>Bot: Activate bed block
+      Server-->>Handler: Time event changes night to day
+      Handler->>Bot: Send /zone tp <selectedZone>
+    else Bed is unavailable
+      Handler->>Bot: Send /zone tp <selectedZone> immediately
+    end
+  end
+```
+
+The handler records the preceding day state to suppress duplicate evaluations from repeated time packets. Sleep and zone teleport actions share a promise sequence, preserving command order when time updates arrive during an active interaction. A successful `/bed` dispatch marks a selected-zone teleport as pending. If no bed exists beneath the bot, the handler executes the startup zone teleport command immediately and clears the pending teleport so daybreak does not issue a duplicate command.
 
 ## 🧵 Cross-Cutting Concerns
 
@@ -238,11 +280,13 @@ The session lifecycle flow executes sequentially after connection establishment.
 |--------------------|--------|----------------|---------------------------|
 | Connection & Auth | [configuration.json](configuration.json) | Defines host, port, version, username, and password. | Read from disk; excluded from git tracking. |
 | Execution Schedule | [configuration.json](configuration.json) | Controls restricted hours and skip probability. | Operator configurable via local file. |
+| Night Sleep | [configuration.json](configuration.json) | Controls the probability of bed usage at each night transition. | Defaults to `0.65` when absent; accepts values from `0.0` through `1.0`. |
 | Session Timings | [configuration.json](configuration.json) | Sets spawn delay, command delay, and online duration limits. | Operator configurable via local file. |
 
 ### Concurrency and Resource Use
 
 - The application executes as a single-threaded asynchronous Node.js process.
+- Night sleep and return operations are serialised through one promise sequence to preserve transition order.
 - Only one Minecraft bot instance is maintained per process invocation.
 - Memory consumption is minimal (< 100 MB) and process lifetime is bounded by the configured session duration.
 
@@ -278,8 +322,8 @@ The principal dependency rules are:
 
 | Contract | Owner | Invariant | Verification | Change Policy |
 |----------|-------|-----------|--------------|---------------|
-| Configuration Schema | [configuration.example.json](configuration.example.json) | JSON structure with `server`, `credentials`, `zones`, `schedule`, and `session` keys. | Automated tests ([tests/bot.test.js](tests/bot.test.js)) | Backwards-compatible additions permitted. |
-| Exported Functions | [bot.js](bot.js) | Module exports `pause`, `randomInteger`, `randomChoice`, `isRestrictedByTimeWindow`, `executeCommand`, `ensureConfigurationExists`, `loadConfiguration`, and `main`. | Automated tests ([tests/bot.test.js](tests/bot.test.js)) | Function signatures must remain stable. |
+| Configuration Schema | [configuration.example.json](configuration.example.json) | JSON structure with `server`, `credentials`, `zones`, `schedule`, `sleep`, and `session` keys; omitted `sleep.probability` defaults to `0.65`. | Automated tests ([tests/bot.test.js](tests/bot.test.js)) | Backwards-compatible additions permitted. |
+| Exported Functions | [bot.js](bot.js) | Module exports orchestration, configuration, timing, command, and night sleep helpers for automated verification. | Automated tests ([tests/bot.test.js](tests/bot.test.js)) | Existing function signatures must remain stable. |
 
 ## ✅ Testing and Verification
 

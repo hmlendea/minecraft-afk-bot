@@ -9,6 +9,9 @@ const MINUTES_PER_HOUR = 60
 const SECONDS_PER_MINUTE = 60
 const MILLISECONDS_PER_SECOND = 1000
 const ZERO_MILLISECONDS = 0
+const DEFAULT_SLEEP_PROBABILITY = 0.65
+const BED_COMMAND = '/bed'
+const BLOCK_BELOW_VERTICAL_OFFSET = -1
 
 function ensureConfigurationExists(
     configurationFilePath = pathModule.join(__dirname, DEFAULT_CONFIGURATION_FILE_NAME),
@@ -86,6 +89,110 @@ async function executeCommand(bot, command, delayMilliseconds) {
     await pause(delayMilliseconds)
 }
 
+function resolveSleepProbability(sleepConfiguration) {
+    const sleepProbability = sleepConfiguration?.probability ?? DEFAULT_SLEEP_PROBABILITY
+
+    if (!Number.isFinite(sleepProbability) || sleepProbability < 0 || sleepProbability > 1) {
+        throw new RangeError(`The sleep probability must be a finite number between 0 and 1. Received: ${sleepProbability}.`)
+    }
+
+    return sleepProbability
+}
+
+async function activateBedUnderBot(bot) {
+    if (
+        !bot?.entity?.position ||
+        typeof bot.entity.position.offset !== 'function' ||
+        typeof bot.blockAt !== 'function' ||
+        typeof bot.isABed !== 'function' ||
+        typeof bot.activateBlock !== 'function'
+    ) {
+        throw new TypeError('A valid bot instance with entity position and block interaction methods is required.')
+    }
+
+    const bedPosition = bot.entity.position.offset(0, BLOCK_BELOW_VERTICAL_OFFSET, 0)
+    const bedBlock = bot.blockAt(bedPosition)
+
+    if (!bedBlock || !bot.isABed(bedBlock)) {
+        return false
+    }
+
+    await bot.activateBlock(bedBlock)
+    return true
+}
+
+function registerNightSleepHandler(
+    bot,
+    sleepConfiguration,
+    commandDelayMilliseconds,
+    zoneTeleportCommand,
+    randomSupplier = Math.random
+) {
+    if (!bot || typeof bot.on !== 'function' || !bot.time) {
+        throw new TypeError('A valid bot instance with time data and event handling is required.')
+    }
+
+    if (typeof zoneTeleportCommand !== 'string' || zoneTeleportCommand.trim().length === 0) {
+        throw new TypeError(`The zone teleport command must be a non-empty string. Received: ${zoneTeleportCommand}.`)
+    }
+
+    if (typeof randomSupplier !== 'function') {
+        throw new TypeError('The random supplier must be a function.')
+    }
+
+    const sleepProbability = resolveSleepProbability(sleepConfiguration)
+    let previousIsDay = typeof bot.time.isDay === 'boolean' ? bot.time.isDay : null
+    let isZoneTeleportPending = false
+    let transitionSequence = Promise.resolve()
+
+    bot.on('time', () => {
+        const currentIsDay = bot.time.isDay
+
+        if (typeof currentIsDay !== 'boolean') {
+            return
+        }
+
+        if (previousIsDay === null) {
+            previousIsDay = currentIsDay
+            return
+        }
+
+        if (currentIsDay === previousIsDay) {
+            return
+        }
+
+        previousIsDay = currentIsDay
+        transitionSequence = transitionSequence
+            .then(async () => {
+                if (currentIsDay) {
+                    if (!isZoneTeleportPending) {
+                        return
+                    }
+
+                    await executeCommand(bot, zoneTeleportCommand, commandDelayMilliseconds)
+                    isZoneTeleportPending = false
+                    return
+                }
+
+                if (randomSupplier() >= sleepProbability) {
+                    return
+                }
+
+                await executeCommand(bot, BED_COMMAND, commandDelayMilliseconds)
+                isZoneTeleportPending = true
+                const wasBedActivated = await activateBedUnderBot(bot)
+
+                if (!wasBedActivated) {
+                    await executeCommand(bot, zoneTeleportCommand, commandDelayMilliseconds)
+                    isZoneTeleportPending = false
+                }
+            })
+            .catch(error => {
+                console.error('An error has occurred during the night sleep sequence:', error)
+            })
+    })
+}
+
 // =========================
 // Main
 // =========================
@@ -108,6 +215,7 @@ async function main(customConfiguration, botFactory = mineflayer.createBot, rand
     }
 
     const selectedZone = randomChoice(configuration.zones)
+    const zoneTeleportCommand = `/zone tp ${selectedZone}`
     console.log(`Selected zone: ${selectedZone}`)
 
     const bot = botFactory({
@@ -131,7 +239,15 @@ async function main(customConfiguration, botFactory = mineflayer.createBot, rand
             await executeCommand(bot, `/auth ${configuration.credentials.password}`, configuration.session.commandDelayMilliseconds)
             await executeCommand(bot, `/op`, configuration.session.commandDelayMilliseconds)
             await executeCommand(bot, `/god`, configuration.session.commandDelayMilliseconds)
-            await executeCommand(bot, `/zone tp ${selectedZone}`, configuration.session.commandDelayMilliseconds)
+            await executeCommand(bot, zoneTeleportCommand, configuration.session.commandDelayMilliseconds)
+
+            registerNightSleepHandler(
+                bot,
+                configuration.sleep,
+                configuration.session.commandDelayMilliseconds,
+                zoneTeleportCommand,
+                randomSupplier
+            )
 
             const onlineMinutes = randomInteger(
                 configuration.session.minimumOnlineMinutes,
@@ -181,8 +297,10 @@ module.exports = {
     randomChoice,
     isRestrictedByTimeWindow,
     executeCommand,
+    resolveSleepProbability,
+    activateBedUnderBot,
+    registerNightSleepHandler,
     ensureConfigurationExists,
     loadConfiguration,
     main
 }
-

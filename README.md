@@ -32,6 +32,7 @@ An automated Minecraft AFK bot powered by Mineflayer to maintain active presence
 
 - Automated authentication and zone teleportation upon spawning on a Minecraft server
 - Schedule-based execution window and random skip condition checks
+- Configurable nightly bed usage with teleportation to the selected zone at daybreak, or immediately when no bed is available
 - Dynamic session duration with configurable online presence bounds
 - Extracted JSON configuration for server settings, credentials, zones, schedule, and timings
 
@@ -61,13 +62,13 @@ npm install
 
 ## ⚙️ Configuration
 
-The application loads server parameters, account credentials, target zones, execution windows, and session delays from `configuration.json`.
+The application loads server parameters, account credentials, target zones, execution windows, sleep probability, and session delays from `configuration.json`.
 
 ### Configuration Files
 
 | File | Scope | Purpose |
 |------|-------|---------|
-| `configuration.json` | Application | Defines server connection parameters, account credentials, target zones, schedule execution windows, and session timings. |
+| `configuration.json` | Application | Defines server connection parameters, account credentials, target zones, schedule execution windows, sleep probability, and session timings. |
 | `configuration.example.json` | Application Template | Serves as the template file used to generate `configuration.json` automatically if missing. |
 
 ### Settings
@@ -87,6 +88,7 @@ The subsequent settings are recognised:
 | `schedule` | `endHour` | `Number` | `17` | Yes | End hour (0-23) of the restricted execution window. |
 | `schedule` | `endMinute` | `Number` | `0` | Yes | End minute (0-59) of the restricted execution window. |
 | `schedule` | `skipProbability` | `Number` | `0.8` | Yes | Probability (0.0 to 1.0) of randomly skipping execution. |
+| `sleep` | `probability` | `Number` | `0.65` | No | Probability (0.0 to 1.0) of using `/bed` and the bed beneath the bot when night starts. |
 | `session` | `minimumOnlineMinutes` | `Number` | `30` | Yes | Minimum online session duration in minutes. |
 | `session` | `maximumOnlineMinutes` | `Number` | `120` | Yes | Maximum online session duration in minutes. |
 | `session` | `spawnDelayMilliseconds` | `Number` | `5000` | Yes | Delay in milliseconds after spawn prior to executing commands. |
