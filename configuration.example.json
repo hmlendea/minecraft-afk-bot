@@ -19,6 +19,9 @@
         "endMinute": 0,
         "skipProbability": 0.8
     },
+    "sleep": {
+        "probability": 0.65
+    },
     "session": {
         "minimumOnlineMinutes": 30,
         "maximumOnlineMinutes": 120,

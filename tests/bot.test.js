@@ -11,10 +11,46 @@ const {
     randomChoice,
     isRestrictedByTimeWindow,
     executeCommand,
+    resolveSleepProbability,
+    activateBedUnderBot,
+    registerNightSleepHandler,
     ensureConfigurationExists,
     loadConfiguration,
     main
 } = require('../bot.js')
+
+function createSleepBot(initialIsDay = true) {
+    const bedPosition = { description: 'beneath the bot' }
+    const bedBlock = { name: 'red_bed', position: bedPosition }
+    const bot = new EventEmitter()
+
+    bot.time = { isDay: initialIsDay }
+    bot.sentCommands = []
+    bot.activatedBlocks = []
+    bot.requestedBlockPositions = []
+    bot.requestedPositionOffsets = []
+    bot.entity = {
+        position: {
+            offset(horizontalOffset, verticalOffset, depthOffset) {
+                bot.requestedPositionOffsets.push([horizontalOffset, verticalOffset, depthOffset])
+                return bedPosition
+            }
+        }
+    }
+    bot.chat = commandText => bot.sentCommands.push(commandText)
+    bot.blockAt = requestedPosition => {
+        bot.requestedBlockPositions.push(requestedPosition)
+        return bedBlock
+    }
+    bot.isABed = block => block === bedBlock
+    bot.activateBlock = async block => bot.activatedBlocks.push(block)
+
+    return bot
+}
+
+async function waitForAsynchronousOperations() {
+    await new Promise(resolve => setImmediate(resolve))
+}
 
 test('pause resolves immediately for non-positive millisecond delays', async () => {
     const zeroStartTimestamp = Date.now()
@@ -176,6 +212,159 @@ test('executeCommand throws TypeError when bot instance is invalid', async () =>
             await executeCommand(invalidBot, '/op', 1)
         }, TypeError)
     }
+})
+
+test('resolveSleepProbability defaults to 65 percent when configuration is missing', () => {
+    assert.strictEqual(resolveSleepProbability(undefined), 0.65)
+    assert.strictEqual(resolveSleepProbability(null), 0.65)
+    assert.strictEqual(resolveSleepProbability({}), 0.65)
+})
+
+test('resolveSleepProbability accepts inclusive probability boundaries', () => {
+    const validProbabilities = [0, 0.01, 0.25, 0.65, 0.99, 1]
+
+    validProbabilities.forEach(probability => {
+        assert.strictEqual(resolveSleepProbability({ probability }), probability)
+    })
+})
+
+test('resolveSleepProbability rejects invalid probability values', () => {
+    const invalidProbabilities = [-1, -0.01, 1.01, 2, Number.NaN, Number.POSITIVE_INFINITY, '0.65']
+
+    invalidProbabilities.forEach(probability => {
+        assert.throws(() => resolveSleepProbability({ probability }), RangeError)
+    })
+})
+
+test('activateBedUnderBot right clicks the bed directly beneath the bot', async () => {
+    const bot = createSleepBot()
+
+    await activateBedUnderBot(bot)
+
+    assert.deepStrictEqual(bot.requestedPositionOffsets, [[0, -1, 0]])
+    assert.deepStrictEqual(bot.requestedBlockPositions, [{ description: 'beneath the bot' }])
+    assert.strictEqual(bot.activatedBlocks.length, 1)
+    assert.strictEqual(bot.activatedBlocks[0].name, 'red_bed')
+})
+
+test('activateBedUnderBot rejects bots without the required interaction methods', async () => {
+    const invalidBots = [null, undefined, {}, { entity: { position: {} } }]
+
+    for (const invalidBot of invalidBots) {
+        await assert.rejects(activateBedUnderBot(invalidBot), TypeError)
+    }
+})
+
+test('activateBedUnderBot rejects a missing or non-bed block', async () => {
+    const missingBedBot = createSleepBot()
+    missingBedBot.blockAt = () => null
+    await assert.rejects(activateBedUnderBot(missingBedBot), /No bed was located beneath the bot/)
+
+    const nonBedBot = createSleepBot()
+    nonBedBot.isABed = () => false
+    await assert.rejects(activateBedUnderBot(nonBedBot), /No bed was located beneath the bot/)
+})
+
+test('registerNightSleepHandler validates its dependencies', () => {
+    assert.throws(() => registerNightSleepHandler(null, {}, 0), TypeError)
+    assert.throws(() => registerNightSleepHandler({}, {}, 0), TypeError)
+    assert.throws(() => registerNightSleepHandler(createSleepBot(), {}, 0, 'invalid'), TypeError)
+})
+
+test('registerNightSleepHandler sleeps once per selected night and returns during the day', async () => {
+    const bot = createSleepBot()
+    const suppliedRandomValues = [0.64, 0.65]
+    let randomCallCount = 0
+    const randomSupplier = () => {
+        const randomValue = suppliedRandomValues[randomCallCount]
+        randomCallCount += 1
+        return randomValue
+    }
+
+    registerNightSleepHandler(bot, { probability: 0.65 }, 0, randomSupplier)
+
+    bot.time.isDay = false
+    bot.emit('time')
+    bot.emit('time')
+    await waitForAsynchronousOperations()
+
+    assert.deepStrictEqual(bot.sentCommands, ['/bed'])
+    assert.strictEqual(bot.activatedBlocks.length, 1)
+    assert.strictEqual(randomCallCount, 1)
+
+    bot.time.isDay = true
+    bot.emit('time')
+    bot.emit('time')
+    await waitForAsynchronousOperations()
+
+    assert.deepStrictEqual(bot.sentCommands, ['/bed', '/back'])
+
+    bot.time.isDay = false
+    bot.emit('time')
+    await waitForAsynchronousOperations()
+
+    assert.deepStrictEqual(bot.sentCommands, ['/bed', '/back'])
+    assert.strictEqual(randomCallCount, 2)
+
+    bot.time.isDay = true
+    bot.emit('time')
+    await waitForAsynchronousOperations()
+
+    assert.deepStrictEqual(bot.sentCommands, ['/bed', '/back'])
+})
+
+test('registerNightSleepHandler waits for a complete transition when time is initially indeterminate', async () => {
+    const bot = createSleepBot(null)
+    let randomCallCount = 0
+    const randomSupplier = () => {
+        randomCallCount += 1
+        return 0
+    }
+
+    registerNightSleepHandler(bot, { probability: 1 }, 0, randomSupplier)
+
+    bot.emit('time')
+    bot.time.isDay = false
+    bot.emit('time')
+    bot.time.isDay = true
+    bot.emit('time')
+    await waitForAsynchronousOperations()
+
+    assert.deepStrictEqual(bot.sentCommands, [])
+    assert.strictEqual(randomCallCount, 0)
+
+    bot.time.isDay = false
+    bot.emit('time')
+    await waitForAsynchronousOperations()
+
+    assert.deepStrictEqual(bot.sentCommands, ['/bed'])
+    assert.strictEqual(randomCallCount, 1)
+})
+
+test('registerNightSleepHandler returns after a bed activation failure', async () => {
+    const bot = createSleepBot()
+    const originalConsoleError = console.error
+    const recordedErrors = []
+    bot.isABed = () => false
+    console.error = (...errorArguments) => recordedErrors.push(errorArguments)
+
+    try {
+        registerNightSleepHandler(bot, { probability: 1 }, 0, () => 0)
+
+        bot.time.isDay = false
+        bot.emit('time')
+        await waitForAsynchronousOperations()
+
+        bot.time.isDay = true
+        bot.emit('time')
+        await waitForAsynchronousOperations()
+    } finally {
+        console.error = originalConsoleError
+    }
+
+    assert.deepStrictEqual(bot.sentCommands, ['/bed', '/back'])
+    assert.strictEqual(recordedErrors.length, 1)
+    assert.match(recordedErrors[0][0], /night sleep sequence/)
 })
 
 test('ensureConfigurationExists creates target file from template when missing', () => {
