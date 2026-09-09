@@ -32,7 +32,7 @@ An automated Minecraft AFK bot powered by Mineflayer to maintain active presence
 
 - Automated authentication and zone teleportation upon spawning on a Minecraft server
 - Schedule-based execution window and random skip condition checks
-- Configurable nightly bed usage with return at daybreak, or immediate return when no bed is available
+- Configurable nightly bed usage with teleportation to the selected zone at daybreak, or immediately when no bed is available
 - Dynamic session duration with configurable online presence bounds
 - Extracted JSON configuration for server settings, credentials, zones, schedule, and timings
 

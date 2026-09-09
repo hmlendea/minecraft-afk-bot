@@ -11,7 +11,6 @@ const MILLISECONDS_PER_SECOND = 1000
 const ZERO_MILLISECONDS = 0
 const DEFAULT_SLEEP_PROBABILITY = 0.65
 const BED_COMMAND = '/bed'
-const RETURN_COMMAND = '/back'
 const BLOCK_BELOW_VERTICAL_OFFSET = -1
 
 function ensureConfigurationExists(
@@ -126,10 +125,15 @@ function registerNightSleepHandler(
     bot,
     sleepConfiguration,
     commandDelayMilliseconds,
+    zoneTeleportCommand,
     randomSupplier = Math.random
 ) {
     if (!bot || typeof bot.on !== 'function' || !bot.time) {
         throw new TypeError('A valid bot instance with time data and event handling is required.')
+    }
+
+    if (typeof zoneTeleportCommand !== 'string' || zoneTeleportCommand.trim().length === 0) {
+        throw new TypeError(`The zone teleport command must be a non-empty string. Received: ${zoneTeleportCommand}.`)
     }
 
     if (typeof randomSupplier !== 'function') {
@@ -138,7 +142,7 @@ function registerNightSleepHandler(
 
     const sleepProbability = resolveSleepProbability(sleepConfiguration)
     let previousIsDay = typeof bot.time.isDay === 'boolean' ? bot.time.isDay : null
-    let returnToPreviousLocation = false
+    let isZoneTeleportPending = false
     let transitionSequence = Promise.resolve()
 
     bot.on('time', () => {
@@ -161,12 +165,12 @@ function registerNightSleepHandler(
         transitionSequence = transitionSequence
             .then(async () => {
                 if (currentIsDay) {
-                    if (!returnToPreviousLocation) {
+                    if (!isZoneTeleportPending) {
                         return
                     }
 
-                    await executeCommand(bot, RETURN_COMMAND, commandDelayMilliseconds)
-                    returnToPreviousLocation = false
+                    await executeCommand(bot, zoneTeleportCommand, commandDelayMilliseconds)
+                    isZoneTeleportPending = false
                     return
                 }
 
@@ -175,12 +179,12 @@ function registerNightSleepHandler(
                 }
 
                 await executeCommand(bot, BED_COMMAND, commandDelayMilliseconds)
-                returnToPreviousLocation = true
+                isZoneTeleportPending = true
                 const wasBedActivated = await activateBedUnderBot(bot)
 
                 if (!wasBedActivated) {
-                    await executeCommand(bot, RETURN_COMMAND, commandDelayMilliseconds)
-                    returnToPreviousLocation = false
+                    await executeCommand(bot, zoneTeleportCommand, commandDelayMilliseconds)
+                    isZoneTeleportPending = false
                 }
             })
             .catch(error => {
@@ -211,6 +215,7 @@ async function main(customConfiguration, botFactory = mineflayer.createBot, rand
     }
 
     const selectedZone = randomChoice(configuration.zones)
+    const zoneTeleportCommand = `/zone tp ${selectedZone}`
     console.log(`Selected zone: ${selectedZone}`)
 
     const bot = botFactory({
@@ -234,12 +239,13 @@ async function main(customConfiguration, botFactory = mineflayer.createBot, rand
             await executeCommand(bot, `/auth ${configuration.credentials.password}`, configuration.session.commandDelayMilliseconds)
             await executeCommand(bot, `/op`, configuration.session.commandDelayMilliseconds)
             await executeCommand(bot, `/god`, configuration.session.commandDelayMilliseconds)
-            await executeCommand(bot, `/zone tp ${selectedZone}`, configuration.session.commandDelayMilliseconds)
+            await executeCommand(bot, zoneTeleportCommand, configuration.session.commandDelayMilliseconds)
 
             registerNightSleepHandler(
                 bot,
                 configuration.sleep,
                 configuration.session.commandDelayMilliseconds,
+                zoneTeleportCommand,
                 randomSupplier
             )
 

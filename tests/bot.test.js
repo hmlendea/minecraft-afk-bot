@@ -19,6 +19,8 @@ const {
     main
 } = require('../bot.js')
 
+const TEST_ZONE_TELEPORT_COMMAND = '/zone tp zone_one'
+
 function createSleepBot(initialIsDay = true) {
     const bedPosition = { description: 'beneath the bot' }
     const bedBlock = { name: 'red_bed', position: bedPosition }
@@ -269,10 +271,20 @@ test('activateBedUnderBot returns false for a missing or non-bed block', async (
 test('registerNightSleepHandler validates its dependencies', () => {
     assert.throws(() => registerNightSleepHandler(null, {}, 0), TypeError)
     assert.throws(() => registerNightSleepHandler({}, {}, 0), TypeError)
-    assert.throws(() => registerNightSleepHandler(createSleepBot(), {}, 0, 'invalid'), TypeError)
+
+    const invalidZoneTeleportCommands = [null, undefined, '', '   ', 123, {}]
+    invalidZoneTeleportCommands.forEach(invalidZoneTeleportCommand => {
+        assert.throws(() => {
+            registerNightSleepHandler(createSleepBot(), {}, 0, invalidZoneTeleportCommand)
+        }, TypeError)
+    })
+
+    assert.throws(() => {
+        registerNightSleepHandler(createSleepBot(), {}, 0, TEST_ZONE_TELEPORT_COMMAND, 'invalid')
+    }, TypeError)
 })
 
-test('registerNightSleepHandler sleeps once per selected night and returns during the day', async () => {
+test('registerNightSleepHandler sleeps once per selected night and teleports to the zone during the day', async () => {
     const bot = createSleepBot()
     const suppliedRandomValues = [0.64, 0.65]
     let randomCallCount = 0
@@ -282,7 +294,7 @@ test('registerNightSleepHandler sleeps once per selected night and returns durin
         return randomValue
     }
 
-    registerNightSleepHandler(bot, { probability: 0.65 }, 0, randomSupplier)
+    registerNightSleepHandler(bot, { probability: 0.65 }, 0, TEST_ZONE_TELEPORT_COMMAND, randomSupplier)
 
     bot.time.isDay = false
     bot.emit('time')
@@ -298,20 +310,20 @@ test('registerNightSleepHandler sleeps once per selected night and returns durin
     bot.emit('time')
     await waitForAsynchronousOperations()
 
-    assert.deepStrictEqual(bot.sentCommands, ['/bed', '/back'])
+    assert.deepStrictEqual(bot.sentCommands, ['/bed', TEST_ZONE_TELEPORT_COMMAND])
 
     bot.time.isDay = false
     bot.emit('time')
     await waitForAsynchronousOperations()
 
-    assert.deepStrictEqual(bot.sentCommands, ['/bed', '/back'])
+    assert.deepStrictEqual(bot.sentCommands, ['/bed', TEST_ZONE_TELEPORT_COMMAND])
     assert.strictEqual(randomCallCount, 2)
 
     bot.time.isDay = true
     bot.emit('time')
     await waitForAsynchronousOperations()
 
-    assert.deepStrictEqual(bot.sentCommands, ['/bed', '/back'])
+    assert.deepStrictEqual(bot.sentCommands, ['/bed', TEST_ZONE_TELEPORT_COMMAND])
 })
 
 test('registerNightSleepHandler waits for a complete transition when time is initially indeterminate', async () => {
@@ -322,7 +334,7 @@ test('registerNightSleepHandler waits for a complete transition when time is ini
         return 0
     }
 
-    registerNightSleepHandler(bot, { probability: 1 }, 0, randomSupplier)
+    registerNightSleepHandler(bot, { probability: 1 }, 0, TEST_ZONE_TELEPORT_COMMAND, randomSupplier)
 
     bot.emit('time')
     bot.time.isDay = false
@@ -342,24 +354,24 @@ test('registerNightSleepHandler waits for a complete transition when time is ini
     assert.strictEqual(randomCallCount, 1)
 })
 
-test('registerNightSleepHandler returns immediately when no bed is available', async () => {
+test('registerNightSleepHandler teleports to the zone immediately when no bed is available', async () => {
     const bot = createSleepBot()
     bot.isABed = () => false
 
-    registerNightSleepHandler(bot, { probability: 1 }, 0, () => 0)
+    registerNightSleepHandler(bot, { probability: 1 }, 0, TEST_ZONE_TELEPORT_COMMAND, () => 0)
 
     bot.time.isDay = false
     bot.emit('time')
     await waitForAsynchronousOperations()
 
-    assert.deepStrictEqual(bot.sentCommands, ['/bed', '/back'])
+    assert.deepStrictEqual(bot.sentCommands, ['/bed', TEST_ZONE_TELEPORT_COMMAND])
     assert.deepStrictEqual(bot.activatedBlocks, [])
 
     bot.time.isDay = true
     bot.emit('time')
     await waitForAsynchronousOperations()
 
-    assert.deepStrictEqual(bot.sentCommands, ['/bed', '/back'])
+    assert.deepStrictEqual(bot.sentCommands, ['/bed', TEST_ZONE_TELEPORT_COMMAND])
 })
 
 test('ensureConfigurationExists creates target file from template when missing', () => {

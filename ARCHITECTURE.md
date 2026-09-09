@@ -109,7 +109,7 @@ sequenceDiagram
         Bot->>Server: Send /bed command
         Bot->>Server: Activate bed block beneath bot
         Server-->>Bot: Emit daytime time event
-        Bot->>Server: Send /back command
+            Bot->>Server: Send /zone tp <selectedZone> command
       end
     end
     Bot->>Bot: Pause for calculated session duration
@@ -125,7 +125,7 @@ The principal runtime sequence is:
 6. Event listener registration for `login`, `spawn`, `time`, `kicked`, `error`, and `end` events.
 7. Upon the `spawn` event, sequential execution of `/auth`, `/op`, `/god`, and `/zone tp` commands with configured delay intervals.
 8. For each day-to-night transition, one probability evaluation determines whether the bot executes `/bed` and activates the bed block beneath it.
-9. After a selected sleep attempt, the subsequent night-to-day transition executes `/back` once.
+9. After a selected sleep attempt, the subsequent night-to-day transition teleports the bot to the selected zone once.
 10. Timed presence pause for a random duration between `minimumOnlineMinutes` and `maximumOnlineMinutes`.
 11. Session conclusion and graceful disconnect via `bot.quit('Completed')`.
 
@@ -203,7 +203,7 @@ graph LR
 | Interface or Integration | Direction | Contract | Owner | Failure Semantics |
 |--------------------------|-----------|----------|-------|-------------------|
 | Minecraft Server TCP | Bidirectional | Minecraft Protocol (Port 25565) | `mineflayer` | Logs error or kick events and terminates process. |
-| Chat Commands | Outbound | Minecraft In-Game Commands (`/auth`, `/op`, `/god`, `/zone tp`, `/bed`, `/back`) | `executeCommand` | Spawn-sequence failures terminate the session; sleep-sequence failures are logged without terminating it. |
+| Chat Commands | Outbound | Minecraft In-Game Commands (`/auth`, `/op`, `/god`, `/zone tp`, `/bed`) | `executeCommand` | Spawn-sequence failures terminate the session; sleep-sequence failures are logged without terminating it. |
 | Time Events | Inbound | Mineflayer `time` event and `bot.time.isDay` state | `registerNightSleepHandler` | Invalid time states are ignored; sleep-sequence failures are logged. |
 
 ## 🔀 Key Flows
@@ -246,14 +246,14 @@ sequenceDiagram
     alt Bed is available
       Handler->>Bot: Activate bed block
       Server-->>Handler: Time event changes night to day
-      Handler->>Bot: Send /back
+      Handler->>Bot: Send /zone tp <selectedZone>
     else Bed is unavailable
-      Handler->>Bot: Send /back immediately
+      Handler->>Bot: Send /zone tp <selectedZone> immediately
     end
   end
 ```
 
-The handler records the preceding day state to suppress duplicate evaluations from repeated time packets. Sleep and return actions share a promise sequence, preserving command order when time updates arrive during an active interaction. A successful `/bed` dispatch marks `/back` as pending. If no bed exists beneath the bot, the handler executes `/back` immediately and clears the pending return so daybreak does not issue a duplicate command.
+The handler records the preceding day state to suppress duplicate evaluations from repeated time packets. Sleep and zone teleport actions share a promise sequence, preserving command order when time updates arrive during an active interaction. A successful `/bed` dispatch marks a selected-zone teleport as pending. If no bed exists beneath the bot, the handler executes the startup zone teleport command immediately and clears the pending teleport so daybreak does not issue a duplicate command.
 
 ## 🧵 Cross-Cutting Concerns
 
