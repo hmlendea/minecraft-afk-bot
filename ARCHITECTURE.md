@@ -242,13 +242,18 @@ sequenceDiagram
   Handler->>Handler: Evaluate sleep.probability once
   opt Selected to sleep
     Handler->>Bot: Send /bed
-    Handler->>Bot: Activate bed block beneath entity
-    Server-->>Handler: Time event changes night to day
-    Handler->>Bot: Send /back
+    Handler->>Bot: Resolve bed block beneath entity
+    alt Bed is available
+      Handler->>Bot: Activate bed block
+      Server-->>Handler: Time event changes night to day
+      Handler->>Bot: Send /back
+    else Bed is unavailable
+      Handler->>Bot: Send /back immediately
+    end
   end
 ```
 
-The handler records the preceding day state to suppress duplicate evaluations from repeated time packets. Sleep and return actions share a promise sequence, preserving command order when time updates arrive during an active interaction. A successful `/bed` dispatch marks `/back` as pending even if bed activation subsequently fails.
+The handler records the preceding day state to suppress duplicate evaluations from repeated time packets. Sleep and return actions share a promise sequence, preserving command order when time updates arrive during an active interaction. A successful `/bed` dispatch marks `/back` as pending. If no bed exists beneath the bot, the handler executes `/back` immediately and clears the pending return so daybreak does not issue a duplicate command.
 
 ## 🧵 Cross-Cutting Concerns
 

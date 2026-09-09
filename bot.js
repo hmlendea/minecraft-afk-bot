@@ -115,10 +115,11 @@ async function activateBedUnderBot(bot) {
     const bedBlock = bot.blockAt(bedPosition)
 
     if (!bedBlock || !bot.isABed(bedBlock)) {
-        throw new Error(`No bed was located beneath the bot at ${bedPosition}.`)
+        return false
     }
 
     await bot.activateBlock(bedBlock)
+    return true
 }
 
 function registerNightSleepHandler(
@@ -175,7 +176,12 @@ function registerNightSleepHandler(
 
                 await executeCommand(bot, BED_COMMAND, commandDelayMilliseconds)
                 returnToPreviousLocation = true
-                await activateBedUnderBot(bot)
+                const wasBedActivated = await activateBedUnderBot(bot)
+
+                if (!wasBedActivated) {
+                    await executeCommand(bot, RETURN_COMMAND, commandDelayMilliseconds)
+                    returnToPreviousLocation = false
+                }
             })
             .catch(error => {
                 console.error('An error has occurred during the night sleep sequence:', error)

@@ -239,8 +239,9 @@ test('resolveSleepProbability rejects invalid probability values', () => {
 test('activateBedUnderBot right clicks the bed directly beneath the bot', async () => {
     const bot = createSleepBot()
 
-    await activateBedUnderBot(bot)
+    const wasBedActivated = await activateBedUnderBot(bot)
 
+    assert.strictEqual(wasBedActivated, true)
     assert.deepStrictEqual(bot.requestedPositionOffsets, [[0, -1, 0]])
     assert.deepStrictEqual(bot.requestedBlockPositions, [{ description: 'beneath the bot' }])
     assert.strictEqual(bot.activatedBlocks.length, 1)
@@ -255,14 +256,14 @@ test('activateBedUnderBot rejects bots without the required interaction methods'
     }
 })
 
-test('activateBedUnderBot rejects a missing or non-bed block', async () => {
+test('activateBedUnderBot returns false for a missing or non-bed block', async () => {
     const missingBedBot = createSleepBot()
     missingBedBot.blockAt = () => null
-    await assert.rejects(activateBedUnderBot(missingBedBot), /No bed was located beneath the bot/)
+    assert.strictEqual(await activateBedUnderBot(missingBedBot), false)
 
     const nonBedBot = createSleepBot()
     nonBedBot.isABed = () => false
-    await assert.rejects(activateBedUnderBot(nonBedBot), /No bed was located beneath the bot/)
+    assert.strictEqual(await activateBedUnderBot(nonBedBot), false)
 })
 
 test('registerNightSleepHandler validates its dependencies', () => {
@@ -341,30 +342,24 @@ test('registerNightSleepHandler waits for a complete transition when time is ini
     assert.strictEqual(randomCallCount, 1)
 })
 
-test('registerNightSleepHandler returns after a bed activation failure', async () => {
+test('registerNightSleepHandler returns immediately when no bed is available', async () => {
     const bot = createSleepBot()
-    const originalConsoleError = console.error
-    const recordedErrors = []
     bot.isABed = () => false
-    console.error = (...errorArguments) => recordedErrors.push(errorArguments)
 
-    try {
-        registerNightSleepHandler(bot, { probability: 1 }, 0, () => 0)
+    registerNightSleepHandler(bot, { probability: 1 }, 0, () => 0)
 
-        bot.time.isDay = false
-        bot.emit('time')
-        await waitForAsynchronousOperations()
-
-        bot.time.isDay = true
-        bot.emit('time')
-        await waitForAsynchronousOperations()
-    } finally {
-        console.error = originalConsoleError
-    }
+    bot.time.isDay = false
+    bot.emit('time')
+    await waitForAsynchronousOperations()
 
     assert.deepStrictEqual(bot.sentCommands, ['/bed', '/back'])
-    assert.strictEqual(recordedErrors.length, 1)
-    assert.match(recordedErrors[0][0], /night sleep sequence/)
+    assert.deepStrictEqual(bot.activatedBlocks, [])
+
+    bot.time.isDay = true
+    bot.emit('time')
+    await waitForAsynchronousOperations()
+
+    assert.deepStrictEqual(bot.sentCommands, ['/bed', '/back'])
 })
 
 test('ensureConfigurationExists creates target file from template when missing', () => {
