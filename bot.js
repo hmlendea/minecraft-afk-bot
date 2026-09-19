@@ -12,6 +12,14 @@ const ZERO_MILLISECONDS = 0
 const DEFAULT_SLEEP_PROBABILITY = 0.65
 const BED_COMMAND = '/bed'
 const BLOCK_BELOW_VERTICAL_OFFSET = -1
+const CURRENT_BLOCK_VERTICAL_OFFSET = 0
+const HORIZONTAL_OR_DEPTH_POSITION_OFFSET = 0
+const BED_INTERACTION_RANGE = 4.5
+const MAXIMUM_BED_SEARCH_RESULTS = 32
+const BED_SEARCH_POSITION_OFFSETS = Object.freeze([
+    Object.freeze({ horizontalOffset: HORIZONTAL_OR_DEPTH_POSITION_OFFSET, verticalOffset: CURRENT_BLOCK_VERTICAL_OFFSET, depthOffset: HORIZONTAL_OR_DEPTH_POSITION_OFFSET }),
+    Object.freeze({ horizontalOffset: HORIZONTAL_OR_DEPTH_POSITION_OFFSET, verticalOffset: BLOCK_BELOW_VERTICAL_OFFSET, depthOffset: HORIZONTAL_OR_DEPTH_POSITION_OFFSET })
+])
 
 function ensureConfigurationExists(
     configurationFilePath = pathModule.join(__dirname, DEFAULT_CONFIGURATION_FILE_NAME),
@@ -99,6 +107,30 @@ function resolveSleepProbability(sleepConfiguration) {
     return sleepProbability
 }
 
+function getReachableBedPositions(bot) {
+    const bedPositions = BED_SEARCH_POSITION_OFFSETS.map(positionOffset => bot.entity.position.offset(
+        positionOffset.horizontalOffset,
+        positionOffset.verticalOffset,
+        positionOffset.depthOffset
+    ))
+
+    if (typeof bot.findBlocks !== 'function') {
+        return bedPositions
+    }
+
+    const reachableBedPositions = bot.findBlocks({
+        matching: block => bot.isABed(block),
+        maxDistance: BED_INTERACTION_RANGE,
+        count: MAXIMUM_BED_SEARCH_RESULTS
+    })
+
+    if (Array.isArray(reachableBedPositions)) {
+        bedPositions.push(...reachableBedPositions)
+    }
+
+    return bedPositions
+}
+
 async function activateBedUnderBot(bot) {
     if (
         !bot?.entity?.position ||
@@ -110,15 +142,20 @@ async function activateBedUnderBot(bot) {
         throw new TypeError('A valid bot instance with entity position and block interaction methods is required.')
     }
 
-    const bedPosition = bot.entity.position.offset(0, BLOCK_BELOW_VERTICAL_OFFSET, 0)
-    const bedBlock = bot.blockAt(bedPosition)
+    const bedPositions = getReachableBedPositions(bot)
 
-    if (!bedBlock || !bot.isABed(bedBlock)) {
-        return false
+    for (const bedPosition of bedPositions) {
+        const bedBlock = bot.blockAt(bedPosition)
+
+        if (!bedBlock || !bot.isABed(bedBlock)) {
+            continue
+        }
+
+        await bot.activateBlock(bedBlock)
+        return true
     }
 
-    await bot.activateBlock(bedBlock)
-    return true
+    return false
 }
 
 function registerNightSleepHandler(

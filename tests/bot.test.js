@@ -22,19 +22,37 @@ const {
 const TEST_ZONE_TELEPORT_COMMAND = '/zone tp zone_one'
 
 function createSleepBot(initialIsDay = true) {
+    const currentPosition = { description: 'inside the bot' }
     const bedPosition = { description: 'beneath the bot' }
-    const bedBlock = { name: 'red_bed', position: bedPosition }
+    const reachableBedPosition = { description: 'within interaction range' }
+    const bedBlock = { name: 'red_bed', position: bedPosition, isBed: true }
     const bot = new EventEmitter()
+    const availableBlocks = new Map([[bedPosition, bedBlock]])
 
     bot.time = { isDay: initialIsDay }
     bot.sentCommands = []
     bot.activatedBlocks = []
     bot.requestedBlockPositions = []
     bot.requestedPositionOffsets = []
+    bot.availableBlocks = availableBlocks
+    bot.testPositions = {
+        currentPosition,
+        bedPosition,
+        reachableBedPosition
+    }
     bot.entity = {
         position: {
             offset(horizontalOffset, verticalOffset, depthOffset) {
                 bot.requestedPositionOffsets.push([horizontalOffset, verticalOffset, depthOffset])
+
+                if (verticalOffset === 0) {
+                    return currentPosition
+                }
+
+                if (verticalOffset === -1) {
+                    return bedPosition
+                }
+
                 return bedPosition
             }
         }
@@ -42,9 +60,9 @@ function createSleepBot(initialIsDay = true) {
     bot.chat = commandText => bot.sentCommands.push(commandText)
     bot.blockAt = requestedPosition => {
         bot.requestedBlockPositions.push(requestedPosition)
-        return bedBlock
+        return availableBlocks.get(requestedPosition) ?? null
     }
-    bot.isABed = block => block === bedBlock
+    bot.isABed = block => Boolean(block?.isBed)
     bot.activateBlock = async block => bot.activatedBlocks.push(block)
 
     return bot
@@ -244,10 +262,52 @@ test('activateBedUnderBot right clicks the bed directly beneath the bot', async 
     const wasBedActivated = await activateBedUnderBot(bot)
 
     assert.strictEqual(wasBedActivated, true)
-    assert.deepStrictEqual(bot.requestedPositionOffsets, [[0, -1, 0]])
-    assert.deepStrictEqual(bot.requestedBlockPositions, [{ description: 'beneath the bot' }])
+    assert.deepStrictEqual(bot.requestedPositionOffsets, [[0, 0, 0], [0, -1, 0]])
+    assert.deepStrictEqual(bot.requestedBlockPositions, [
+        { description: 'inside the bot' },
+        { description: 'beneath the bot' }
+    ])
     assert.strictEqual(bot.activatedBlocks.length, 1)
     assert.strictEqual(bot.activatedBlocks[0].name, 'red_bed')
+})
+
+test('activateBedUnderBot right clicks the bed at the bot position', async () => {
+    const bot = createSleepBot()
+    const bedBlock = { name: 'blue_bed', position: bot.testPositions.currentPosition, isBed: true }
+    bot.availableBlocks.clear()
+    bot.availableBlocks.set(bot.testPositions.currentPosition, bedBlock)
+
+    const wasBedActivated = await activateBedUnderBot(bot)
+
+    assert.strictEqual(wasBedActivated, true)
+    assert.deepStrictEqual(bot.requestedPositionOffsets, [[0, 0, 0]])
+    assert.deepStrictEqual(bot.requestedBlockPositions, [{ description: 'inside the bot' }])
+    assert.deepStrictEqual(bot.activatedBlocks, [bedBlock])
+})
+
+test('activateBedUnderBot right clicks a reachable bed', async () => {
+    const bot = createSleepBot()
+    const reachableBedBlock = { name: 'green_bed', position: bot.testPositions.reachableBedPosition, isBed: true }
+    bot.availableBlocks.clear()
+    bot.availableBlocks.set(bot.testPositions.reachableBedPosition, reachableBedBlock)
+    bot.findBlocks = searchOptions => {
+        bot.requestedBlockSearchOptions = searchOptions
+        return [bot.testPositions.reachableBedPosition]
+    }
+
+    const wasBedActivated = await activateBedUnderBot(bot)
+
+    assert.strictEqual(wasBedActivated, true)
+    assert.deepStrictEqual(bot.requestedPositionOffsets, [[0, 0, 0], [0, -1, 0]])
+    assert.deepStrictEqual(bot.requestedBlockPositions, [
+        { description: 'inside the bot' },
+        { description: 'beneath the bot' },
+        { description: 'within interaction range' }
+    ])
+    assert.strictEqual(bot.requestedBlockSearchOptions.maxDistance, 4.5)
+    assert.strictEqual(bot.requestedBlockSearchOptions.count, 32)
+    assert.strictEqual(bot.requestedBlockSearchOptions.matching(reachableBedBlock), true)
+    assert.deepStrictEqual(bot.activatedBlocks, [reachableBedBlock])
 })
 
 test('activateBedUnderBot rejects bots without the required interaction methods', async () => {

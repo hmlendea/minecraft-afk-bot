@@ -88,7 +88,7 @@ The subsequent settings are recognised:
 | `schedule` | `endHour` | `Number` | `17` | Yes | End hour (0-23) of the restricted execution window. |
 | `schedule` | `endMinute` | `Number` | `0` | Yes | End minute (0-59) of the restricted execution window. |
 | `schedule` | `skipProbability` | `Number` | `0.8` | Yes | Probability (0.0 to 1.0) of randomly skipping execution. |
-| `sleep` | `probability` | `Number` | `0.65` | No | Probability (0.0 to 1.0) of using `/bed` and the bed beneath the bot when night starts. |
+| `sleep` | `probability` | `Number` | `0.65` | No | Probability (0.0 to 1.0) of using `/bed` and a reachable bed when night starts. |
 | `session` | `minimumOnlineMinutes` | `Number` | `30` | Yes | Minimum online session duration in minutes. |
 | `session` | `maximumOnlineMinutes` | `Number` | `120` | Yes | Maximum online session duration in minutes. |
 | `session` | `spawnDelayMilliseconds` | `Number` | `5000` | Yes | Delay in milliseconds after spawn prior to executing commands. |
