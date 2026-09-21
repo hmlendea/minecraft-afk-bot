@@ -9,6 +9,7 @@ const {
     pause,
     randomInteger,
     randomChoice,
+    resolveLogFilePath,
     isRestrictedByTimeWindow,
     executeCommand,
     resolveSleepProbability,
@@ -20,6 +21,10 @@ const {
 } = require('../bot.js')
 
 const TEST_ZONE_TELEPORT_COMMAND = '/zone tp zone_one'
+const silentLogger = {
+    log() {},
+    error() {}
+}
 
 function createSleepBot(initialIsDay = true) {
     const currentPosition = { description: 'inside the bot' }
@@ -152,6 +157,32 @@ test('randomChoice throws TypeError when array is invalid or empty', () => {
     })
 })
 
+test('resolveLogFilePath resolves configured paths relative to bot.js', () => {
+    const baseDirectoryPath = pathModule.resolve(__dirname, '..')
+
+    assert.strictEqual(
+        resolveLogFilePath({ filePath: pathModule.join('logs', 'bot.log') }, baseDirectoryPath),
+        pathModule.join(baseDirectoryPath, 'logs', 'bot.log')
+    )
+})
+
+test('resolveLogFilePath preserves absolute paths and defaults when omitted', () => {
+    const baseDirectoryPath = pathModule.resolve(__dirname, '..')
+    const absoluteLogFilePath = pathModule.join(baseDirectoryPath, 'custom.log')
+
+    assert.strictEqual(resolveLogFilePath({ filePath: absoluteLogFilePath }), absoluteLogFilePath)
+    assert.strictEqual(resolveLogFilePath({}), pathModule.join(baseDirectoryPath, 'logfile.log'))
+    assert.strictEqual(resolveLogFilePath(null), pathModule.join(baseDirectoryPath, 'logfile.log'))
+})
+
+test('resolveLogFilePath rejects invalid configured paths', () => {
+    const invalidLogFilePaths = [null, '', '   ', 123, {}]
+
+    invalidLogFilePaths.forEach(invalidLogFilePath => {
+        assert.throws(() => resolveLogFilePath({ filePath: invalidLogFilePath }), TypeError)
+    })
+})
+
 test('isRestrictedByTimeWindow returns false when schedule is missing', () => {
     assert.strictEqual(isRestrictedByTimeWindow(new Date(), null), false)
     assert.strictEqual(isRestrictedByTimeWindow(new Date(), undefined), false)
@@ -219,9 +250,29 @@ test('executeCommand issues chat command and resolves after delay', async () => 
     }
 
     const testCommand = '/zone tp solar_forge'
-    await executeCommand(mockBot, testCommand, 1)
+    await executeCommand(mockBot, testCommand, 1, silentLogger)
 
     assert.strictEqual(executedChatCommand, testCommand)
+})
+
+test('executeCommand redacts authentication credentials from logs', async () => {
+    const loggedMessages = []
+    const recordingLogger = {
+        log(message) {
+            loggedMessages.push(message)
+        }
+    }
+    const sentCommands = []
+    const mockBot = {
+        chat(commandText) {
+            sentCommands.push(commandText)
+        }
+    }
+
+    await executeCommand(mockBot, '/auth secret-password', 0, recordingLogger)
+
+    assert.deepStrictEqual(sentCommands, ['/auth secret-password'])
+    assert.deepStrictEqual(loggedMessages, ['Executing command: /auth [REDACTED]'])
 })
 
 test('executeCommand throws TypeError when bot instance is invalid', async () => {
@@ -354,7 +405,14 @@ test('registerNightSleepHandler sleeps once per selected night and teleports to 
         return randomValue
     }
 
-    registerNightSleepHandler(bot, { probability: 0.65 }, 0, TEST_ZONE_TELEPORT_COMMAND, randomSupplier)
+    registerNightSleepHandler(
+        bot,
+        { probability: 0.65 },
+        0,
+        TEST_ZONE_TELEPORT_COMMAND,
+        randomSupplier,
+        silentLogger
+    )
 
     bot.time.isDay = false
     bot.emit('time')
@@ -394,7 +452,14 @@ test('registerNightSleepHandler waits for a complete transition when time is ini
         return 0
     }
 
-    registerNightSleepHandler(bot, { probability: 1 }, 0, TEST_ZONE_TELEPORT_COMMAND, randomSupplier)
+    registerNightSleepHandler(
+        bot,
+        { probability: 1 },
+        0,
+        TEST_ZONE_TELEPORT_COMMAND,
+        randomSupplier,
+        silentLogger
+    )
 
     bot.emit('time')
     bot.time.isDay = false
@@ -418,7 +483,14 @@ test('registerNightSleepHandler teleports to the zone immediately when no bed is
     const bot = createSleepBot()
     bot.isABed = () => false
 
-    registerNightSleepHandler(bot, { probability: 1 }, 0, TEST_ZONE_TELEPORT_COMMAND, () => 0)
+    registerNightSleepHandler(
+        bot,
+        { probability: 1 },
+        0,
+        TEST_ZONE_TELEPORT_COMMAND,
+        () => 0,
+        silentLogger
+    )
 
     bot.time.isDay = false
     bot.emit('time')
@@ -442,7 +514,7 @@ test('ensureConfigurationExists creates target file from template when missing',
     const sampleTemplateContent = JSON.stringify({ server: { host: 'mc.example.com' } })
     fileSystem.writeFileSync(templateFilePath, sampleTemplateContent, 'utf8')
 
-    ensureConfigurationExists(configurationFilePath, templateFilePath)
+    ensureConfigurationExists(configurationFilePath, templateFilePath, silentLogger)
 
     assert.strictEqual(fileSystem.existsSync(configurationFilePath), true)
     assert.strictEqual(fileSystem.readFileSync(configurationFilePath, 'utf8'), sampleTemplateContent)
@@ -508,7 +580,7 @@ test('main returns null when time restriction applies', async () => {
         }
     }
 
-    const botResult = await main(mockConfiguration)
+    const botResult = await main(mockConfiguration, undefined, Math.random, silentLogger)
     assert.strictEqual(botResult, null)
 })
 
@@ -533,8 +605,39 @@ test('main returns null when skip probability is triggered', async () => {
     }
 
     const alwaysTriggerRandom = () => 0.1
-    const botResult = await main(mockConfiguration, undefined, alwaysTriggerRandom)
+    const botResult = await main(mockConfiguration, undefined, alwaysTriggerRandom, silentLogger)
     assert.strictEqual(botResult, null)
+})
+
+test('main writes logs to the configured file path', async () => {
+    const temporaryDirectoryPath = fileSystem.mkdtempSync(pathModule.join(__dirname, 'test-temp-'))
+    const configuredLogFilePath = pathModule.join(temporaryDirectoryPath, 'logs', 'bot.log')
+    const originalConsoleLog = console.log
+    const mockConfiguration = {
+        logging: { filePath: configuredLogFilePath },
+        schedule: {
+            startHour: 10,
+            startMinute: 0,
+            endHour: 10,
+            endMinute: 0,
+            skipProbability: 1
+        }
+    }
+
+    console.log = () => {}
+
+    try {
+        const botResult = await main(mockConfiguration, undefined, () => 0)
+
+        assert.strictEqual(botResult, null)
+        assert.match(
+            fileSystem.readFileSync(configuredLogFilePath, 'utf8'),
+            /\[INFO\] 100% random skip condition triggered\. The bot will not execute\./
+        )
+    } finally {
+        console.log = originalConsoleLog
+        fileSystem.rmSync(temporaryDirectoryPath, { recursive: true, force: true })
+    }
 })
 
 test('main creates bot and executes spawn workflow when unrestricted', async () => {
@@ -581,7 +684,7 @@ test('main creates bot and executes spawn workflow when unrestricted', async () 
     }
 
     const neverTriggerRandom = () => 0.99
-    const botResult = await main(mockConfiguration, mockBotFactory, neverTriggerRandom)
+    const botResult = await main(mockConfiguration, mockBotFactory, neverTriggerRandom, silentLogger)
 
     assert.ok(botResult)
     assert.strictEqual(botResult, createdBotInstance)
@@ -631,7 +734,7 @@ test('main handles errors thrown during spawn sequence gracefully', async () => 
     }
 
     const neverTriggerRandom = () => 0.99
-    const botResult = await main(mockConfiguration, faultyBotFactory, neverTriggerRandom)
+    const botResult = await main(mockConfiguration, faultyBotFactory, neverTriggerRandom, silentLogger)
 
     assert.ok(botResult)
     botResult.emit('spawn')

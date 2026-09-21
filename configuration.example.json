@@ -8,6 +8,9 @@
         "username": "YourUsername",
         "password": "YourPassword"
     },
+    "logging": {
+        "filePath": "logfile.log"
+    },
     "zones": [
         "zone_one_farm",
         "zone_two_farm"
