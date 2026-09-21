@@ -9,6 +9,7 @@ const {
     pause,
     randomInteger,
     randomChoice,
+    resolveLogFilePath,
     isRestrictedByTimeWindow,
     executeCommand,
     resolveSleepProbability,
@@ -135,6 +136,32 @@ test('randomChoice throws TypeError when array is invalid or empty', () => {
         assert.throws(() => {
             randomChoice(invalidInput)
         }, TypeError)
+    })
+})
+
+test('resolveLogFilePath resolves configured paths relative to bot.js', () => {
+    const baseDirectoryPath = pathModule.resolve(__dirname, '..')
+
+    assert.strictEqual(
+        resolveLogFilePath({ filePath: pathModule.join('logs', 'bot.log') }, baseDirectoryPath),
+        pathModule.join(baseDirectoryPath, 'logs', 'bot.log')
+    )
+})
+
+test('resolveLogFilePath preserves absolute paths and defaults when omitted', () => {
+    const baseDirectoryPath = pathModule.resolve(__dirname, '..')
+    const absoluteLogFilePath = pathModule.join(baseDirectoryPath, 'custom.log')
+
+    assert.strictEqual(resolveLogFilePath({ filePath: absoluteLogFilePath }), absoluteLogFilePath)
+    assert.strictEqual(resolveLogFilePath({}), pathModule.join(baseDirectoryPath, 'logfile.log'))
+    assert.strictEqual(resolveLogFilePath(null), pathModule.join(baseDirectoryPath, 'logfile.log'))
+})
+
+test('resolveLogFilePath rejects invalid configured paths', () => {
+    const invalidLogFilePaths = [null, '', '   ', 123, {}]
+
+    invalidLogFilePaths.forEach(invalidLogFilePath => {
+        assert.throws(() => resolveLogFilePath({ filePath: invalidLogFilePath }), TypeError)
     })
 })
 
@@ -520,6 +547,37 @@ test('main returns null when skip probability is triggered', async () => {
     const alwaysTriggerRandom = () => 0.1
     const botResult = await main(mockConfiguration, undefined, alwaysTriggerRandom, silentLogger)
     assert.strictEqual(botResult, null)
+})
+
+test('main writes logs to the configured file path', async () => {
+    const temporaryDirectoryPath = fileSystem.mkdtempSync(pathModule.join(__dirname, 'test-temp-'))
+    const configuredLogFilePath = pathModule.join(temporaryDirectoryPath, 'logs', 'bot.log')
+    const originalConsoleLog = console.log
+    const mockConfiguration = {
+        logging: { filePath: configuredLogFilePath },
+        schedule: {
+            startHour: 10,
+            startMinute: 0,
+            endHour: 10,
+            endMinute: 0,
+            skipProbability: 1
+        }
+    }
+
+    console.log = () => {}
+
+    try {
+        const botResult = await main(mockConfiguration, undefined, () => 0)
+
+        assert.strictEqual(botResult, null)
+        assert.match(
+            fileSystem.readFileSync(configuredLogFilePath, 'utf8'),
+            /\[INFO\] 100% random skip condition triggered\. The bot will not execute\./
+        )
+    } finally {
+        console.log = originalConsoleLog
+        fileSystem.rmSync(temporaryDirectoryPath, { recursive: true, force: true })
+    }
 })
 
 test('main creates bot and executes spawn workflow when unrestricted', async () => {

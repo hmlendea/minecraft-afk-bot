@@ -17,6 +17,12 @@ function createLogger({
     dateSupplier = () => new Date(),
     consoleOutput = console
 } = {}) {
+    if (typeof logFilePath !== 'string' || logFilePath.trim().length === 0) {
+        throw new TypeError(`The log file path must be a non-empty string. Received: ${logFilePath}.`)
+    }
+
+    fileSystem.mkdirSync(pathModule.dirname(logFilePath), { recursive: true })
+
     function appendLog(logLevel, values) {
         const timestamp = formatTimestamp(dateSupplier())
         const message = utility.format(...values)

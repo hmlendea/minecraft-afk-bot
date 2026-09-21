@@ -2,7 +2,11 @@
 const fileSystem = require('fs')
 const pathModule = require('path')
 const mineflayer = require('mineflayer')
-const { applicationLogger: defaultApplicationLogger } = require('./logger.js')
+const {
+    DEFAULT_LOG_FILE_PATH,
+    createLogger,
+    applicationLogger: defaultApplicationLogger
+} = require('./logger.js')
 
 const DEFAULT_CONFIGURATION_FILE_NAME = 'configuration.json'
 const DEFAULT_CONFIGURATION_TEMPLATE_FILE_NAME = 'configuration.example.json'
@@ -71,6 +75,24 @@ function redactAuthenticationCommand(command) {
     }
 
     return command
+}
+
+function resolveLogFilePath(loggingConfiguration, baseDirectoryPath = __dirname) {
+    if (loggingConfiguration === undefined || loggingConfiguration === null) {
+        return DEFAULT_LOG_FILE_PATH
+    }
+
+    const configuredLogFilePath = loggingConfiguration.filePath
+
+    if (configuredLogFilePath === undefined) {
+        return DEFAULT_LOG_FILE_PATH
+    }
+
+    if (typeof configuredLogFilePath !== 'string' || configuredLogFilePath.trim().length === 0) {
+        throw new TypeError(`The logging file path must be a non-empty string. Received: ${configuredLogFilePath}.`)
+    }
+
+    return pathModule.resolve(baseDirectoryPath, configuredLogFilePath)
 }
 
 function isRestrictedByTimeWindow(currentDate, scheduleConfiguration) {
@@ -217,9 +239,16 @@ async function main(
     customConfiguration,
     botFactory = mineflayer.createBot,
     randomSupplier = Math.random,
-    applicationLogger = defaultApplicationLogger
+    applicationLogger
 ) {
-    const configuration = customConfiguration || loadConfiguration(undefined, applicationLogger)
+    const configurationLoadLogger = applicationLogger || defaultApplicationLogger
+    const configuration = customConfiguration || loadConfiguration(undefined, configurationLoadLogger)
+    const configuredLogFilePath = resolveLogFilePath(configuration.logging)
+    const activeApplicationLogger = applicationLogger || (
+        configuredLogFilePath === DEFAULT_LOG_FILE_PATH
+            ? defaultApplicationLogger
+            : createLogger({ logFilePath: configuredLogFilePath })
+    )
 
     if (isRestrictedByTimeWindow(new Date(), configuration.schedule)) {
         const { startHour, startMinute, endHour, endMinute } = configuration.schedule
@@ -227,18 +256,18 @@ async function main(
         const startMinuteFormatted = startMinute.toString().padStart(2, '0')
         const endHourFormatted = endHour.toString().padStart(2, '0')
         const endMinuteFormatted = endMinute.toString().padStart(2, '0')
-        applicationLogger.log(`The current time falls within the restricted execution window (${startHourFormatted}:${startMinuteFormatted} - ${endHourFormatted}:${endMinuteFormatted}). The bot will not execute.`)
+        activeApplicationLogger.log(`The current time falls within the restricted execution window (${startHourFormatted}:${startMinuteFormatted} - ${endHourFormatted}:${endMinuteFormatted}). The bot will not execute.`)
         return null
     }
 
     if (randomSupplier() < configuration.schedule.skipProbability) {
-        applicationLogger.log(`${configuration.schedule.skipProbability * 100}% random skip condition triggered. The bot will not execute.`)
+        activeApplicationLogger.log(`${configuration.schedule.skipProbability * 100}% random skip condition triggered. The bot will not execute.`)
         return null
     }
 
     const selectedZone = randomChoice(configuration.zones)
     const zoneTeleportCommand = `/zone tp ${selectedZone}`
-    applicationLogger.log(`Selected zone: ${selectedZone}`)
+    activeApplicationLogger.log(`Selected zone: ${selectedZone}`)
 
     const bot = botFactory({
         host: configuration.server.host,
@@ -250,18 +279,18 @@ async function main(
     let isCompleted = false
 
     bot.once('login', () => {
-        applicationLogger.log(`Connected to the server at ${configuration.server.host}:${configuration.server.port} as ${configuration.credentials.username}.`)
+        activeApplicationLogger.log(`Connected to the server at ${configuration.server.host}:${configuration.server.port} as ${configuration.credentials.username}.`)
     })
 
     bot.once('spawn', async () => {
         try {
-            applicationLogger.log('The world environment has loaded.')
+            activeApplicationLogger.log('The world environment has loaded.')
             await pause(configuration.session.spawnDelayMilliseconds)
 
-            await executeCommand(bot, `/auth ${configuration.credentials.password}`, configuration.session.commandDelayMilliseconds, applicationLogger)
-            await executeCommand(bot, `/op`, configuration.session.commandDelayMilliseconds, applicationLogger)
-            await executeCommand(bot, `/god`, configuration.session.commandDelayMilliseconds, applicationLogger)
-            await executeCommand(bot, zoneTeleportCommand, configuration.session.commandDelayMilliseconds, applicationLogger)
+            await executeCommand(bot, `/auth ${configuration.credentials.password}`, configuration.session.commandDelayMilliseconds, activeApplicationLogger)
+            await executeCommand(bot, `/op`, configuration.session.commandDelayMilliseconds, activeApplicationLogger)
+            await executeCommand(bot, `/god`, configuration.session.commandDelayMilliseconds, activeApplicationLogger)
+            await executeCommand(bot, zoneTeleportCommand, configuration.session.commandDelayMilliseconds, activeApplicationLogger)
 
             registerNightSleepHandler(
                 bot,
@@ -269,39 +298,39 @@ async function main(
                 configuration.session.commandDelayMilliseconds,
                 zoneTeleportCommand,
                 randomSupplier,
-                applicationLogger
+                activeApplicationLogger
             )
 
             const onlineMinutes = randomInteger(
                 configuration.session.minimumOnlineMinutes,
                 configuration.session.maximumOnlineMinutes
             )
-            applicationLogger.log(`Remaining online for ${onlineMinutes} minutes.`)
+            activeApplicationLogger.log(`Remaining online for ${onlineMinutes} minutes.`)
             await pause(onlineMinutes * SECONDS_PER_MINUTE * MILLISECONDS_PER_SECOND)
 
             isCompleted = true
-            applicationLogger.log('Disconnecting from the server.')
+            activeApplicationLogger.log('Disconnecting from the server.')
             bot.quit('Completed')
         } catch (error) {
-            applicationLogger.error('An error has occurred during bot execution:', error)
+            activeApplicationLogger.error('An error has occurred during bot execution:', error)
             isCompleted = true
             bot.quit('Error')
         }
     })
 
     bot.on('kicked', reason => {
-        applicationLogger.log('Kicked from the server:', reason)
+        activeApplicationLogger.log('Kicked from the server:', reason)
     })
 
     bot.on('error', error => {
-        applicationLogger.error('The bot has encountered an error:', error)
+        activeApplicationLogger.error('The bot has encountered an error:', error)
     })
 
     bot.on('end', () => {
         if (!isCompleted) {
-            applicationLogger.log('Disconnected prior to normal completion.')
+            activeApplicationLogger.log('Disconnected prior to normal completion.')
         } else {
-            applicationLogger.log('The bot session has concluded.')
+            activeApplicationLogger.log('The bot session has concluded.')
         }
     })
 
@@ -318,6 +347,7 @@ module.exports = {
     pause,
     randomInteger,
     randomChoice,
+    resolveLogFilePath,
     isRestrictedByTimeWindow,
     executeCommand,
     resolveSleepProbability,

@@ -13,9 +13,17 @@ test('default log file is logfile.log beside bot.js', () => {
     assert.strictEqual(pathModule.dirname(DEFAULT_LOG_FILE_PATH), pathModule.dirname(botFilePath))
 })
 
+test('createLogger rejects invalid log file paths', () => {
+    const invalidLogFilePaths = [null, '', '   ', 123, {}]
+
+    invalidLogFilePaths.forEach(invalidLogFilePath => {
+        assert.throws(() => createLogger({ logFilePath: invalidLogFilePath }), TypeError)
+    })
+})
+
 test('logger mirrors informational and error messages to the console and log file', () => {
     const temporaryDirectoryPath = fileSystem.mkdtempSync(pathModule.join(__dirname, 'test-temp-'))
-    const logFilePath = pathModule.join(temporaryDirectoryPath, 'test.log')
+    const logFilePath = pathModule.join(temporaryDirectoryPath, 'nested', 'test.log')
     const consoleLogCalls = []
     const consoleErrorCalls = []
     const consoleOutput = {

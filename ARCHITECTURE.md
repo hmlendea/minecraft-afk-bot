@@ -50,13 +50,13 @@ graph TD
     User["Operator or GitHub Actions"] -->|Invokes process| Bot["Minecraft AFK Bot Application"]
     Bot -->|Reads configuration| ConfigFile["configuration.json"]
     Bot -->|Fallback template copy| ConfigTemplate["configuration.example.json"]
-    Bot -->|Appends diagnostics| LogFile["logfile.log"]
+    Bot -->|Appends diagnostics| LogFile["Configured Log File"]
     Bot -->|Minecraft Protocol over TCP Port 25565| Server["Minecraft Server"]
 ```
 
 The principal external boundaries are:
 - **Minecraft Server Boundary:** Communicates with remote server instances via the Minecraft protocol over TCP port 25565 utilizing Mineflayer.
-- **Local Filesystem Boundary:** Reads runtime settings from [configuration.json](configuration.json), copies [configuration.example.json](configuration.example.json) when the configuration file is absent, and appends diagnostics to the generated `logfile.log` file.
+- **Local Filesystem Boundary:** Reads runtime settings from [configuration.json](configuration.json), copies [configuration.example.json](configuration.example.json) when the configuration file is absent, and appends diagnostics to the configured log file.
 
 ## 🏗️ Architectural Style
 
@@ -73,7 +73,7 @@ graph LR
         Mineflayer["Mineflayer Library"]
         MCServer["Minecraft Server"]
       Console["Standard Output and Error"]
-      LogFile["logfile.log"]
+      LogFile["Configured Log File"]
     end
     Entry -->|Loads| Config
     Entry -->|Emits diagnostics| Logger
@@ -86,7 +86,7 @@ graph LR
 The principal architecture boundaries are:
 - **Configuration Boundary:** Encapsulates settings validation, template generation, and JSON parsing in isolated helper functions.
 - **Bot Orchestration Boundary:** Manages Mineflayer event listeners, command execution sequencing, timer pauses, and clean process termination.
-- **Observability Boundary:** Formats console arguments, adds timestamps and severity levels, and synchronously appends each diagnostic to `logfile.log`.
+- **Observability Boundary:** Resolves `logging.filePath`, formats console arguments, adds timestamps and severity levels, and synchronously appends each diagnostic to the selected file.
 
 ## 🔄 Runtime Flow
 
@@ -104,7 +104,7 @@ sequenceDiagram
     Main->>Config: loadConfiguration()
     Config-->>Main: Return configuration object
     Main->>Logger: Record lifecycle diagnostics
-    Logger-->>Main: Mirror to console and append to logfile.log
+    Logger-->>Main: Mirror to console and append to configured file
     Main->>Main: Evaluate isRestrictedByTimeWindow()
     Main->>Main: Evaluate random skip probability
     Main->>Bot: mineflayer.createBot()
@@ -145,7 +145,7 @@ The principal runtime sequence is:
 
 | Component | Responsibility | Principal Dependencies | Lifetime or Ownership |
 |-----------|----------------|------------------------|-----------------------|
-| `applicationLogger` | Mirrors informational and error diagnostics to the console and appends formatted records to `logfile.log`. | `fs`, `path`, `util` | Process-wide instance owned by [logger.js](logger.js). |
+| `createLogger` | Creates a logger that mirrors diagnostics to the console and appends formatted records to a selected file. | `fs`, `path`, `util` | One active instance per process invocation, with a process-wide default fallback. |
 | `loadConfiguration` | Ensures configuration file existence and parses [configuration.json](configuration.json). | `fs`, `path` | Transient function invocation on process startup. |
 | `isRestrictedByTimeWindow` | Evaluates whether current date and time fall within the restricted execution window. | Date API | Pure helper function invoked during main execution. |
 | `main` | Orchestrates schedule evaluations, bot instantiation, event listeners, command sequences, and teardown. | `mineflayer`, `fs`, `path` | Primary process orchestrator function. |
@@ -174,7 +174,7 @@ Paths:
 - [configuration.json](configuration.json)
 
 Responsibilities:
-- Defines runtime parameters for server connectivity, authentication credentials, zone lists, time restrictions, and session delays.
+- Defines runtime parameters for server connectivity, authentication credentials, logging, zone lists, time restrictions, and session delays.
 
 Boundary rules:
 - [configuration.json](configuration.json) is excluded from version control via [.gitignore](.gitignore) to protect local credentials.
@@ -187,10 +187,12 @@ Paths:
 
 Responsibilities:
 - Mirrors each application diagnostic to its corresponding console stream.
-- Appends timestamped `INFO` and `ERROR` records to `logfile.log` beside [bot.js](bot.js).
+- Appends timestamped `INFO` and `ERROR` records to the file selected by `logging.filePath`.
 
 Boundary rules:
 - Authentication command arguments are redacted by [bot.js](bot.js) before they reach the logger.
+- Relative log paths resolve from the directory containing [bot.js](bot.js), and missing parent directories are created automatically.
+- An omitted `logging.filePath` retains the default `logfile.log` destination beside [bot.js](bot.js).
 - The generated log file is excluded from version control via [.gitignore](.gitignore).
 
 ### Automated Test Suite
@@ -200,7 +202,7 @@ Paths:
 - [tests/logger.test.js](tests/logger.test.js)
 
 Responsibilities:
-- Verifies helper functions, exception handling, configuration loading, command redaction, dual-destination logging, and main orchestration using mock collaborators.
+- Verifies helper functions, exception handling, configuration loading, configurable path resolution, command redaction, dual-destination logging, and main orchestration using mock collaborators.
 
 Boundary rules:
 - Utilises Node.js native test runner (`node:test`) and assertion library (`node:assert/strict`).
@@ -217,14 +219,14 @@ graph LR
     Memory -->|Server & Credentials| BotOpts["Mineflayer Bot Options"]
     Memory -->|Zone List| ZoneSel["Zone Selection"]
     Memory -->|Lifecycle and error diagnostics| Logger["Logging Adapter"]
-    Logger -->|Timestamped records| LogFile["logfile.log"]
+    Logger -->|Timestamped records| LogFile["Configured Log File"]
 ```
 
 | Data or Store | Owner | Representation and Storage | Lifecycle or Consistency |
 |---------------|-------|----------------------------|--------------------------|
 | `configuration.example.json` | Repository | File on disk (JSON format) | Immutable version-controlled template. |
 | `configuration.json` | Application Host | File on disk (JSON format) | Local file created on demand or edited by operator. |
-| `logfile.log` | [logger.js](logger.js) | Append-only UTF-8 text file beside [bot.js](bot.js) | Created on the first diagnostic and retained until the operator truncates or deletes it. |
+| Configured Log File | [logger.js](logger.js) | Append-only UTF-8 text file at `logging.filePath`; defaults beside [bot.js](bot.js). | Its parent directory is created during logger initialisation, and records remain until the operator truncates or deletes the file. |
 | Configuration Object | [bot.js](bot.js) | In-memory JavaScript Object | Created at process startup and discarded at process exit. |
 | Night Sleep State | `registerNightSleepHandler` | In-memory transition state and promise sequence | Created after zone teleportation and discarded when the bot session ends. |
 
@@ -299,13 +301,13 @@ The handler records the preceding day state to suppress duplicate evaluations fr
 ### Error Handling
 
 - Errors originating from Mineflayer events (`kicked`, `error`, `end`) are recorded through the shared logger.
-- Command execution failures during the spawn sequence trigger a try-catch block, logging the error to standard error and `logfile.log` before invoking `bot.quit('Error')`.
+- Command execution failures during the spawn sequence trigger a try-catch block, logging the error to standard error and the configured log file before invoking `bot.quit('Error')`.
 - Helper functions enforce parameter validation and throw explicit `TypeError` or `RangeError` exceptions for invalid arguments.
 
 ### Observability
 
 - [logger.js](logger.js) mirrors informational messages to standard output and errors to standard error.
-- Every mirrored message is appended synchronously to `logfile.log` with a seven-digit ISO 8601 timestamp and `INFO` or `ERROR` severity.
+- Every mirrored message is appended synchronously to the configured log file with a seven-digit ISO 8601 timestamp and `INFO` or `ERROR` severity.
 - Logging has no rotation or retention automation; the operator owns file maintenance.
 
 ### Configuration
@@ -313,6 +315,7 @@ The handler records the preceding day state to suppress duplicate evaluations fr
 | Configuration Area | Source | Responsibility | Override or Secret Policy |
 |--------------------|--------|----------------|---------------------------|
 | Connection & Auth | [configuration.json](configuration.json) | Defines host, port, version, username, and password. | Read from disk; excluded from git tracking. |
+| Diagnostic Logging | [configuration.json](configuration.json) | Selects the append-only log file through `logging.filePath`. | Optional; relative paths resolve from the application directory and omission defaults to `logfile.log`. |
 | Execution Schedule | [configuration.json](configuration.json) | Controls restricted hours and skip probability. | Operator configurable via local file. |
 | Night Sleep | [configuration.json](configuration.json) | Controls the probability of bed usage at each night transition. | Defaults to `0.65` when absent; accepts values from `0.0` through `1.0`. |
 | Session Timings | [configuration.json](configuration.json) | Sets spawn delay, command delay, and online duration limits. | Operator configurable via local file. |
@@ -353,14 +356,14 @@ The principal dependency rules are:
 | Concern | Current Design | Architectural Consequence |
 |---------|----------------|---------------------------|
 | Process Topology | Single Node.js CLI process executed on demand or via cron scheduler. | Simple execution model without background daemon requirements. |
-| Persistence | Local configuration and append-only diagnostics; no database requirements. | Operators must protect and periodically maintain `configuration.json` and `logfile.log`. |
+| Persistence | Local configuration and append-only diagnostics at a configurable path; no database requirements. | Operators must protect and periodically maintain `configuration.json` and the selected log file. |
 | Operating System | Cross-platform (Linux, macOS, Windows). | Native execution on any system supporting Node.js v18.0.0 or later. |
 
 ## 🛡️ Compatibility Contracts
 
 | Contract | Owner | Invariant | Verification | Change Policy |
 |----------|-------|-----------|--------------|---------------|
-| Configuration Schema | [configuration.example.json](configuration.example.json) | JSON structure with `server`, `credentials`, `zones`, `schedule`, `sleep`, and `session` keys; omitted `sleep.probability` defaults to `0.65`. | Automated tests ([tests/bot.test.js](tests/bot.test.js)) | Backwards-compatible additions permitted. |
+| Configuration Schema | [configuration.example.json](configuration.example.json) | JSON structure with `server`, `credentials`, `logging`, `zones`, `schedule`, `sleep`, and `session` keys; omitted `logging.filePath` defaults to `logfile.log` and omitted `sleep.probability` defaults to `0.65`. | Automated tests ([tests/bot.test.js](tests/bot.test.js)) | Backwards-compatible additions permitted. |
 | Exported Functions | [bot.js](bot.js) | Module exports orchestration, configuration, timing, command, and night sleep helpers for automated verification. | Automated tests ([tests/bot.test.js](tests/bot.test.js)) | Existing function signatures must remain stable. |
 
 ## ✅ Testing and Verification
@@ -382,7 +385,7 @@ npm run build
 ## ⚠️ Design Constraints
 
 - **Single Session Execution:** Constructed to execute a single AFK session per invocation rather than maintaining a persistent multi-bot pool.
-- **Append-Only Logging:** Each message performs a synchronous filesystem append, and the application provides no rotation, size limit, or retention automation.
+- **Append-Only Logging:** Each message performs a synchronous filesystem append to the configured destination, and the application provides no rotation, size limit, or retention automation.
 - **Node.js Runtime Dependency:** Requires Node.js v18.0.0 or later for `node:test` support and modern ES syntax.
 - **Protocol Compatibility:** Depends on Mineflayer for Minecraft version protocol support.
 
@@ -401,7 +404,7 @@ Extension implementations must preserve non-blocking asynchronous execution and 
 | Decision | Rationale | Consequence | Record |
 |----------|-----------|-------------|--------|
 | Extracted Configuration | Prevent hardcoding credentials and server settings in application code. | Enables deployment across environments via [configuration.json](configuration.json). | Documented here |
-| Dedicated Logging Adapter | Centralise dual console and file output without coupling formatting and persistence to bot orchestration. | All application diagnostics pass through [logger.js](logger.js), and tests can inject isolated loggers. | Documented here |
+| Dedicated Logging Adapter | Centralise dual console and configurable file output without coupling formatting and persistence to bot orchestration. | All application diagnostics pass through [logger.js](logger.js), and tests can inject isolated loggers. | Documented here |
 | Native Test Runner | Refrain from external testing framework dependencies like Jest or Mocha. | Reduces dependency footprint and leverages Node.js built-in capabilities. | Documented here |
 
 ## 🗺️ Source Map
