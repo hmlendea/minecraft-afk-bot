@@ -16,6 +16,8 @@ An automated Minecraft AFK bot powered by Mineflayer to maintain active presence
 - [Configuration](#-configuration)
   - [Configuration Files](#configuration-files)
   - [Settings](#settings)
+- [Privacy and Data](#-privacy-and-data)
+  - [Data Locations](#data-locations)
 - [Development](#-development)
   - [Requirements](#requirements)
   - [Setup](#setup)
@@ -34,6 +36,7 @@ An automated Minecraft AFK bot powered by Mineflayer to maintain active presence
 - Schedule-based execution window and random skip condition checks
 - Configurable nightly bed usage with teleportation to the selected zone at daybreak, or immediately when no bed is available
 - Dynamic session duration with configurable online presence bounds
+- Console diagnostics mirrored to a configurable local log file with authentication credentials redacted
 - Extracted JSON configuration for server settings, credentials, zones, schedule, and timings
 
 ## 🚀 Usage
@@ -43,6 +46,8 @@ Execute the bot using Node.js:
 ```bash
 node bot.js
 ```
+
+Runtime messages remain visible in the console and are appended to the file configured by `logging.filePath`. The default is `logfile.log` in the same directory as [bot.js](bot.js).
 
 ## 🖥️ System Requirements
 
@@ -62,13 +67,13 @@ npm install
 
 ## ⚙️ Configuration
 
-The application loads server parameters, account credentials, target zones, execution windows, sleep probability, and session delays from `configuration.json`.
+The application loads server parameters, account credentials, logging options, target zones, execution windows, sleep probability, and session delays from `configuration.json`.
 
 ### Configuration Files
 
 | File | Scope | Purpose |
 |------|-------|---------|
-| `configuration.json` | Application | Defines server connection parameters, account credentials, target zones, schedule execution windows, sleep probability, and session timings. |
+| `configuration.json` | Application | Defines server connection parameters, account credentials, log destination, target zones, schedule execution windows, sleep probability, and session timings. |
 | `configuration.example.json` | Application Template | Serves as the template file used to generate `configuration.json` automatically if missing. |
 
 ### Settings
@@ -82,6 +87,7 @@ The subsequent settings are recognised:
 | `server` | `version` | `String` | `"1.20.1"` | Yes | The target Minecraft protocol version. |
 | `credentials` | `username` | `String` | `"WeJoke"` | Yes | The Minecraft account username. |
 | `credentials` | `password` | `String` | `"nusuntclonaluihori"` | Yes | The password for in-game `/auth` authentication. |
+| `logging` | `filePath` | `String` | `"logfile.log"` | No | Log destination. Relative paths resolve from the directory containing [bot.js](bot.js); missing parent directories are created automatically. |
 | `zones` | `zones` | `Array` | `[...]` | Yes | The list of target zone names for teleportation. |
 | `schedule` | `startHour` | `Number` | `1` | Yes | Start hour (0-23) of the restricted execution window. |
 | `schedule` | `startMinute` | `Number` | `30` | Yes | Start minute (0-59) of the restricted execution window. |
@@ -93,6 +99,20 @@ The subsequent settings are recognised:
 | `session` | `maximumOnlineMinutes` | `Number` | `120` | Yes | Maximum online session duration in minutes. |
 | `session` | `spawnDelayMilliseconds` | `Number` | `5000` | Yes | Delay in milliseconds after spawn prior to executing commands. |
 | `session` | `commandDelayMilliseconds` | `Number` | `5000` | Yes | Delay in milliseconds between executed commands. |
+
+## 🛡️ Privacy and Data
+
+| Data | Purpose | Storage | Retention | Optional |
+|------|---------|---------|-----------|----------|
+| Runtime diagnostics | Diagnose connection, command, and session events. | File selected by `logging.filePath`; defaults to `logfile.log` beside [bot.js](bot.js). | Appended until the operator truncates or deletes the file. | No |
+
+Authentication credentials supplied to `/auth` are redacted before diagnostics are emitted. Logs can contain operational details such as the configured server address and account username, so access to the file should be restricted. The generated file is excluded from version control by [.gitignore](.gitignore).
+
+### Data Locations
+
+| Platform or Scope | Location | Contents |
+|-------------------|----------|----------|
+| All supported platforms | `logging.filePath`, resolved from the directory containing [bot.js](bot.js) when relative | Timestamped runtime diagnostics. |
 
 ## 🛠️ Development
 
