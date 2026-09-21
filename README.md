@@ -16,6 +16,8 @@ An automated Minecraft AFK bot powered by Mineflayer to maintain active presence
 - [Configuration](#-configuration)
   - [Configuration Files](#configuration-files)
   - [Settings](#settings)
+- [Privacy and Data](#-privacy-and-data)
+  - [Data Locations](#data-locations)
 - [Development](#-development)
   - [Requirements](#requirements)
   - [Setup](#setup)
@@ -34,6 +36,7 @@ An automated Minecraft AFK bot powered by Mineflayer to maintain active presence
 - Schedule-based execution window and random skip condition checks
 - Configurable nightly bed usage with teleportation to the selected zone at daybreak, or immediately when no bed is available
 - Dynamic session duration with configurable online presence bounds
+- Console diagnostics mirrored to a local log file with authentication credentials redacted
 - Extracted JSON configuration for server settings, credentials, zones, schedule, and timings
 
 ## 🚀 Usage
@@ -43,6 +46,8 @@ Execute the bot using Node.js:
 ```bash
 node bot.js
 ```
+
+Runtime messages remain visible in the console and are appended to a generated `logfile.log` file in the same directory as [bot.js](bot.js).
 
 ## 🖥️ System Requirements
 
@@ -93,6 +98,20 @@ The subsequent settings are recognised:
 | `session` | `maximumOnlineMinutes` | `Number` | `120` | Yes | Maximum online session duration in minutes. |
 | `session` | `spawnDelayMilliseconds` | `Number` | `5000` | Yes | Delay in milliseconds after spawn prior to executing commands. |
 | `session` | `commandDelayMilliseconds` | `Number` | `5000` | Yes | Delay in milliseconds between executed commands. |
+
+## 🛡️ Privacy and Data
+
+| Data | Purpose | Storage | Retention | Optional |
+|------|---------|---------|-----------|----------|
+| Runtime diagnostics | Diagnose connection, command, and session events. | Generated `logfile.log` beside [bot.js](bot.js). | Appended until the operator truncates or deletes the file. | No |
+
+Authentication credentials supplied to `/auth` are redacted before diagnostics are emitted. Logs can contain operational details such as the configured server address and account username, so access to the file should be restricted. The generated file is excluded from version control by [.gitignore](.gitignore).
+
+### Data Locations
+
+| Platform or Scope | Location | Contents |
+|-------------------|----------|----------|
+| All supported platforms | Same directory as [bot.js](bot.js) | `logfile.log` containing timestamped runtime diagnostics. |
 
 ## 🛠️ Development
 

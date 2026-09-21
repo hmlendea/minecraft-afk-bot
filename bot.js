@@ -2,6 +2,7 @@
 const fileSystem = require('fs')
 const pathModule = require('path')
 const mineflayer = require('mineflayer')
+const { applicationLogger: defaultApplicationLogger } = require('./logger.js')
 
 const DEFAULT_CONFIGURATION_FILE_NAME = 'configuration.json'
 const DEFAULT_CONFIGURATION_TEMPLATE_FILE_NAME = 'configuration.example.json'
@@ -12,21 +13,28 @@ const ZERO_MILLISECONDS = 0
 const DEFAULT_SLEEP_PROBABILITY = 0.65
 const BED_COMMAND = '/bed'
 const BLOCK_BELOW_VERTICAL_OFFSET = -1
+const AUTHENTICATION_COMMAND_PATTERN = /^\/auth(?:\s|$)/i
+const REDACTED_AUTHENTICATION_COMMAND = '/auth [REDACTED]'
 
 function ensureConfigurationExists(
     configurationFilePath = pathModule.join(__dirname, DEFAULT_CONFIGURATION_FILE_NAME),
-    configurationTemplateFilePath = pathModule.join(__dirname, DEFAULT_CONFIGURATION_TEMPLATE_FILE_NAME)
+    configurationTemplateFilePath = pathModule.join(__dirname, DEFAULT_CONFIGURATION_TEMPLATE_FILE_NAME),
+    applicationLogger = defaultApplicationLogger
 ) {
     if (!fileSystem.existsSync(configurationFilePath) && fileSystem.existsSync(configurationTemplateFilePath)) {
         fileSystem.copyFileSync(configurationTemplateFilePath, configurationFilePath)
-        console.log('Generated `configuration.json` from the `configuration.example.json` template.')
+        applicationLogger.log('Generated `configuration.json` from the `configuration.example.json` template.')
     }
 }
 
-function loadConfiguration(configurationFilePath = pathModule.join(__dirname, DEFAULT_CONFIGURATION_FILE_NAME)) {
+function loadConfiguration(
+    configurationFilePath = pathModule.join(__dirname, DEFAULT_CONFIGURATION_FILE_NAME),
+    applicationLogger = defaultApplicationLogger
+) {
     ensureConfigurationExists(
         configurationFilePath,
-        pathModule.join(pathModule.dirname(configurationFilePath), DEFAULT_CONFIGURATION_TEMPLATE_FILE_NAME)
+        pathModule.join(pathModule.dirname(configurationFilePath), DEFAULT_CONFIGURATION_TEMPLATE_FILE_NAME),
+        applicationLogger
     )
 
     const rawConfigurationContent = fileSystem.readFileSync(configurationFilePath, 'utf8')
@@ -57,6 +65,14 @@ function randomChoice(array) {
     return array[Math.floor(Math.random() * array.length)]
 }
 
+function redactAuthenticationCommand(command) {
+    if (typeof command === 'string' && AUTHENTICATION_COMMAND_PATTERN.test(command.trimStart())) {
+        return REDACTED_AUTHENTICATION_COMMAND
+    }
+
+    return command
+}
+
 function isRestrictedByTimeWindow(currentDate, scheduleConfiguration) {
     if (!scheduleConfiguration) {
         return false
@@ -79,12 +95,12 @@ function isRestrictedByTimeWindow(currentDate, scheduleConfiguration) {
     return currentMinutes >= startMinutes || currentMinutes < endMinutes
 }
 
-async function executeCommand(bot, command, delayMilliseconds) {
+async function executeCommand(bot, command, delayMilliseconds, applicationLogger = defaultApplicationLogger) {
     if (!bot || typeof bot.chat !== 'function') {
         throw new TypeError('A valid bot instance with a chat method is required.')
     }
 
-    console.log(`Executing command: ${command}`)
+    applicationLogger.log(`Executing command: ${redactAuthenticationCommand(command)}`)
     bot.chat(command)
     await pause(delayMilliseconds)
 }
@@ -126,7 +142,8 @@ function registerNightSleepHandler(
     sleepConfiguration,
     commandDelayMilliseconds,
     zoneTeleportCommand,
-    randomSupplier = Math.random
+    randomSupplier = Math.random,
+    applicationLogger = defaultApplicationLogger
 ) {
     if (!bot || typeof bot.on !== 'function' || !bot.time) {
         throw new TypeError('A valid bot instance with time data and event handling is required.')
@@ -169,7 +186,7 @@ function registerNightSleepHandler(
                         return
                     }
 
-                    await executeCommand(bot, zoneTeleportCommand, commandDelayMilliseconds)
+                    await executeCommand(bot, zoneTeleportCommand, commandDelayMilliseconds, applicationLogger)
                     isZoneTeleportPending = false
                     return
                 }
@@ -178,17 +195,17 @@ function registerNightSleepHandler(
                     return
                 }
 
-                await executeCommand(bot, BED_COMMAND, commandDelayMilliseconds)
+                await executeCommand(bot, BED_COMMAND, commandDelayMilliseconds, applicationLogger)
                 isZoneTeleportPending = true
                 const wasBedActivated = await activateBedUnderBot(bot)
 
                 if (!wasBedActivated) {
-                    await executeCommand(bot, zoneTeleportCommand, commandDelayMilliseconds)
+                    await executeCommand(bot, zoneTeleportCommand, commandDelayMilliseconds, applicationLogger)
                     isZoneTeleportPending = false
                 }
             })
             .catch(error => {
-                console.error('An error has occurred during the night sleep sequence:', error)
+                applicationLogger.error('An error has occurred during the night sleep sequence:', error)
             })
     })
 }
@@ -196,8 +213,13 @@ function registerNightSleepHandler(
 // =========================
 // Main
 // =========================
-async function main(customConfiguration, botFactory = mineflayer.createBot, randomSupplier = Math.random) {
-    const configuration = customConfiguration || loadConfiguration()
+async function main(
+    customConfiguration,
+    botFactory = mineflayer.createBot,
+    randomSupplier = Math.random,
+    applicationLogger = defaultApplicationLogger
+) {
+    const configuration = customConfiguration || loadConfiguration(undefined, applicationLogger)
 
     if (isRestrictedByTimeWindow(new Date(), configuration.schedule)) {
         const { startHour, startMinute, endHour, endMinute } = configuration.schedule
@@ -205,18 +227,18 @@ async function main(customConfiguration, botFactory = mineflayer.createBot, rand
         const startMinuteFormatted = startMinute.toString().padStart(2, '0')
         const endHourFormatted = endHour.toString().padStart(2, '0')
         const endMinuteFormatted = endMinute.toString().padStart(2, '0')
-        console.log(`The current time falls within the restricted execution window (${startHourFormatted}:${startMinuteFormatted} - ${endHourFormatted}:${endMinuteFormatted}). The bot will not execute.`)
+        applicationLogger.log(`The current time falls within the restricted execution window (${startHourFormatted}:${startMinuteFormatted} - ${endHourFormatted}:${endMinuteFormatted}). The bot will not execute.`)
         return null
     }
 
     if (randomSupplier() < configuration.schedule.skipProbability) {
-        console.log(`${configuration.schedule.skipProbability * 100}% random skip condition triggered. The bot will not execute.`)
+        applicationLogger.log(`${configuration.schedule.skipProbability * 100}% random skip condition triggered. The bot will not execute.`)
         return null
     }
 
     const selectedZone = randomChoice(configuration.zones)
     const zoneTeleportCommand = `/zone tp ${selectedZone}`
-    console.log(`Selected zone: ${selectedZone}`)
+    applicationLogger.log(`Selected zone: ${selectedZone}`)
 
     const bot = botFactory({
         host: configuration.server.host,
@@ -228,57 +250,58 @@ async function main(customConfiguration, botFactory = mineflayer.createBot, rand
     let isCompleted = false
 
     bot.once('login', () => {
-        console.log(`Connected to the server at ${configuration.server.host}:${configuration.server.port} as ${configuration.credentials.username}.`)
+        applicationLogger.log(`Connected to the server at ${configuration.server.host}:${configuration.server.port} as ${configuration.credentials.username}.`)
     })
 
     bot.once('spawn', async () => {
         try {
-            console.log('The world environment has loaded.')
+            applicationLogger.log('The world environment has loaded.')
             await pause(configuration.session.spawnDelayMilliseconds)
 
-            await executeCommand(bot, `/auth ${configuration.credentials.password}`, configuration.session.commandDelayMilliseconds)
-            await executeCommand(bot, `/op`, configuration.session.commandDelayMilliseconds)
-            await executeCommand(bot, `/god`, configuration.session.commandDelayMilliseconds)
-            await executeCommand(bot, zoneTeleportCommand, configuration.session.commandDelayMilliseconds)
+            await executeCommand(bot, `/auth ${configuration.credentials.password}`, configuration.session.commandDelayMilliseconds, applicationLogger)
+            await executeCommand(bot, `/op`, configuration.session.commandDelayMilliseconds, applicationLogger)
+            await executeCommand(bot, `/god`, configuration.session.commandDelayMilliseconds, applicationLogger)
+            await executeCommand(bot, zoneTeleportCommand, configuration.session.commandDelayMilliseconds, applicationLogger)
 
             registerNightSleepHandler(
                 bot,
                 configuration.sleep,
                 configuration.session.commandDelayMilliseconds,
                 zoneTeleportCommand,
-                randomSupplier
+                randomSupplier,
+                applicationLogger
             )
 
             const onlineMinutes = randomInteger(
                 configuration.session.minimumOnlineMinutes,
                 configuration.session.maximumOnlineMinutes
             )
-            console.log(`Remaining online for ${onlineMinutes} minutes.`)
+            applicationLogger.log(`Remaining online for ${onlineMinutes} minutes.`)
             await pause(onlineMinutes * SECONDS_PER_MINUTE * MILLISECONDS_PER_SECOND)
 
             isCompleted = true
-            console.log('Disconnecting from the server.')
+            applicationLogger.log('Disconnecting from the server.')
             bot.quit('Completed')
         } catch (error) {
-            console.error('An error has occurred during bot execution:', error)
+            applicationLogger.error('An error has occurred during bot execution:', error)
             isCompleted = true
             bot.quit('Error')
         }
     })
 
     bot.on('kicked', reason => {
-        console.log('Kicked from the server:', reason)
+        applicationLogger.log('Kicked from the server:', reason)
     })
 
     bot.on('error', error => {
-        console.error('The bot has encountered an error:', error)
+        applicationLogger.error('The bot has encountered an error:', error)
     })
 
     bot.on('end', () => {
         if (!isCompleted) {
-            console.log('Disconnected prior to normal completion.')
+            applicationLogger.log('Disconnected prior to normal completion.')
         } else {
-            console.log('The bot session has concluded.')
+            applicationLogger.log('The bot session has concluded.')
         }
     })
 
@@ -287,7 +310,7 @@ async function main(customConfiguration, botFactory = mineflayer.createBot, rand
 
 if (require.main === module) {
     main().catch(error => {
-        console.error('A fatal error has occurred during bot execution:', error)
+        defaultApplicationLogger.error('A fatal error has occurred during bot execution:', error)
     })
 }
 
