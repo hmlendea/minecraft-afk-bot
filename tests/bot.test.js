@@ -26,6 +26,19 @@ const silentLogger = {
     error() {}
 }
 
+function createRecordingLogger() {
+    return {
+        logMessages: [],
+        errorMessages: [],
+        log(...values) {
+            this.logMessages.push(values)
+        },
+        error(...values) {
+            this.errorMessages.push(values)
+        }
+    }
+}
+
 function createSleepBot(initialIsDay = true) {
     const currentPosition = { description: 'inside the bot' }
     const bedPosition = { description: 'beneath the bot' }
@@ -309,8 +322,9 @@ test('resolveSleepProbability rejects invalid probability values', () => {
 
 test('activateBedUnderBot right clicks the bed directly beneath the bot', async () => {
     const bot = createSleepBot()
+    const recordingLogger = createRecordingLogger()
 
-    const wasBedActivated = await activateBedUnderBot(bot)
+    const wasBedActivated = await activateBedUnderBot(bot, recordingLogger)
 
     assert.strictEqual(wasBedActivated, true)
     assert.deepStrictEqual(bot.requestedPositionOffsets, [[0, 0, 0], [0, -1, 0]])
@@ -320,6 +334,10 @@ test('activateBedUnderBot right clicks the bed directly beneath the bot', async 
     ])
     assert.strictEqual(bot.activatedBlocks.length, 1)
     assert.strictEqual(bot.activatedBlocks[0].name, 'red_bed')
+    assert.deepStrictEqual(recordingLogger.logMessages, [
+        ['A bed block was found:', 'red_bed'],
+        ['Sleeping was initiated successfully.']
+    ])
 })
 
 test('activateBedUnderBot right clicks the bed at the bot position', async () => {
@@ -371,12 +389,32 @@ test('activateBedUnderBot rejects bots without the required interaction methods'
 
 test('activateBedUnderBot returns false for a missing or non-bed block', async () => {
     const missingBedBot = createSleepBot()
+    const missingBedLogger = createRecordingLogger()
     missingBedBot.blockAt = () => null
-    assert.strictEqual(await activateBedUnderBot(missingBedBot), false)
+    assert.strictEqual(await activateBedUnderBot(missingBedBot, missingBedLogger), false)
+    assert.deepStrictEqual(missingBedLogger.logMessages, [['No bed block was found within interaction range.']])
 
     const nonBedBot = createSleepBot()
+    const nonBedLogger = createRecordingLogger()
     nonBedBot.isABed = () => false
-    assert.strictEqual(await activateBedUnderBot(nonBedBot), false)
+    assert.strictEqual(await activateBedUnderBot(nonBedBot, nonBedLogger), false)
+    assert.deepStrictEqual(nonBedLogger.logMessages, [['No bed block was found within interaction range.']])
+})
+
+test('activateBedUnderBot logs and rethrows bed activation failures', async () => {
+    const bot = createSleepBot()
+    const recordingLogger = createRecordingLogger()
+    const activationError = new Error('The server rejected the bed interaction.')
+    bot.activateBlock = async () => {
+        throw activationError
+    }
+
+    await assert.rejects(activateBedUnderBot(bot, recordingLogger), activationError)
+
+    assert.deepStrictEqual(recordingLogger.logMessages, [['A bed block was found:', 'red_bed']])
+    assert.deepStrictEqual(recordingLogger.errorMessages, [
+        ['Sleeping could not be initiated because bed activation failed:', activationError]
+    ])
 })
 
 test('registerNightSleepHandler validates its dependencies', () => {

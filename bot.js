@@ -169,7 +169,7 @@ function* getReachableBedPositions(bot) {
     }
 }
 
-async function activateBedUnderBot(bot) {
+async function activateBedUnderBot(bot, applicationLogger = defaultApplicationLogger) {
     if (
         !bot?.entity?.position ||
         typeof bot.entity.position.offset !== 'function' ||
@@ -189,10 +189,19 @@ async function activateBedUnderBot(bot) {
             continue
         }
 
-        await bot.activateBlock(bedBlock)
-        return true
+        applicationLogger.log('A bed block was found:', bedBlock.name || 'unnamed bed')
+
+        try {
+            await bot.activateBlock(bedBlock)
+            applicationLogger.log('Sleeping was initiated successfully.')
+            return true
+        } catch (error) {
+            applicationLogger.error('Sleeping could not be initiated because bed activation failed:', error)
+            throw error
+        }
     }
 
+    applicationLogger.log('No bed block was found within interaction range.')
     return false
 }
 
@@ -251,20 +260,24 @@ function registerNightSleepHandler(
                 }
 
                 if (randomSupplier() >= sleepProbability) {
+                    applicationLogger.log('Night sleep was skipped because the configured probability condition was not met.')
                     return
                 }
 
+                applicationLogger.log('Night sleep was selected. Issuing the bed command.')
                 await executeCommand(bot, BED_COMMAND, commandDelayMilliseconds, applicationLogger)
                 isZoneTeleportPending = true
-                const wasBedActivated = await activateBedUnderBot(bot)
+                const wasBedActivated = await activateBedUnderBot(bot, applicationLogger)
 
                 if (!wasBedActivated) {
+                    applicationLogger.log('Returning to the selected zone because no bed block was available.')
                     await executeCommand(bot, zoneTeleportCommand, commandDelayMilliseconds, applicationLogger)
                     isZoneTeleportPending = false
+                    return
                 }
             })
             .catch(error => {
-                applicationLogger.error('An error has occurred during the night sleep sequence:', error)
+                applicationLogger.error('The night sleep sequence failed:', error)
             })
     })
 }
