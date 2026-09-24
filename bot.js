@@ -17,6 +17,14 @@ const ZERO_MILLISECONDS = 0
 const DEFAULT_SLEEP_PROBABILITY = 0.65
 const BED_COMMAND = '/bed'
 const BLOCK_BELOW_VERTICAL_OFFSET = -1
+const CURRENT_BLOCK_VERTICAL_OFFSET = 0
+const HORIZONTAL_OR_DEPTH_POSITION_OFFSET = 0
+const BED_INTERACTION_RANGE = 4.5
+const MAXIMUM_BED_SEARCH_RESULTS = 32
+const BED_SEARCH_POSITION_OFFSETS = Object.freeze([
+    Object.freeze({ horizontalOffset: HORIZONTAL_OR_DEPTH_POSITION_OFFSET, verticalOffset: CURRENT_BLOCK_VERTICAL_OFFSET, depthOffset: HORIZONTAL_OR_DEPTH_POSITION_OFFSET }),
+    Object.freeze({ horizontalOffset: HORIZONTAL_OR_DEPTH_POSITION_OFFSET, verticalOffset: BLOCK_BELOW_VERTICAL_OFFSET, depthOffset: HORIZONTAL_OR_DEPTH_POSITION_OFFSET })
+])
 const AUTHENTICATION_COMMAND_PATTERN = /^\/auth(?:\s|$)/i
 const REDACTED_AUTHENTICATION_COMMAND = '/auth [REDACTED]'
 
@@ -137,7 +145,31 @@ function resolveSleepProbability(sleepConfiguration) {
     return sleepProbability
 }
 
-async function activateBedUnderBot(bot) {
+function* getReachableBedPositions(bot) {
+    for (const positionOffset of BED_SEARCH_POSITION_OFFSETS) {
+        yield bot.entity.position.offset(
+            positionOffset.horizontalOffset,
+            positionOffset.verticalOffset,
+            positionOffset.depthOffset
+        )
+    }
+
+    if (typeof bot.findBlocks !== 'function') {
+        return
+    }
+
+    const reachableBedPositions = bot.findBlocks({
+        matching: block => bot.isABed(block),
+        maxDistance: BED_INTERACTION_RANGE,
+        count: MAXIMUM_BED_SEARCH_RESULTS
+    })
+
+    if (Array.isArray(reachableBedPositions)) {
+        yield* reachableBedPositions
+    }
+}
+
+async function activateBedUnderBot(bot, applicationLogger = defaultApplicationLogger) {
     if (
         !bot?.entity?.position ||
         typeof bot.entity.position.offset !== 'function' ||
@@ -148,15 +180,29 @@ async function activateBedUnderBot(bot) {
         throw new TypeError('A valid bot instance with entity position and block interaction methods is required.')
     }
 
-    const bedPosition = bot.entity.position.offset(0, BLOCK_BELOW_VERTICAL_OFFSET, 0)
-    const bedBlock = bot.blockAt(bedPosition)
+    const bedPositions = getReachableBedPositions(bot)
 
-    if (!bedBlock || !bot.isABed(bedBlock)) {
-        return false
+    for (const bedPosition of bedPositions) {
+        const bedBlock = bot.blockAt(bedPosition)
+
+        if (!bedBlock || !bot.isABed(bedBlock)) {
+            continue
+        }
+
+        applicationLogger.log('A bed block was found:', bedBlock.name || 'unnamed bed')
+
+        try {
+            await bot.activateBlock(bedBlock)
+            applicationLogger.log('Sleeping was initiated successfully.')
+            return true
+        } catch (error) {
+            applicationLogger.error('Sleeping could not be initiated because bed activation failed:', error)
+            throw error
+        }
     }
 
-    await bot.activateBlock(bedBlock)
-    return true
+    applicationLogger.log('No bed block was found within interaction range.')
+    return false
 }
 
 function registerNightSleepHandler(
@@ -214,20 +260,24 @@ function registerNightSleepHandler(
                 }
 
                 if (randomSupplier() >= sleepProbability) {
+                    applicationLogger.log('Night sleep was skipped because the configured probability condition was not met.')
                     return
                 }
 
+                applicationLogger.log('Night sleep was selected. Issuing the bed command.')
                 await executeCommand(bot, BED_COMMAND, commandDelayMilliseconds, applicationLogger)
                 isZoneTeleportPending = true
-                const wasBedActivated = await activateBedUnderBot(bot)
+                const wasBedActivated = await activateBedUnderBot(bot, applicationLogger)
 
                 if (!wasBedActivated) {
+                    applicationLogger.log('Returning to the selected zone because no bed block was available.')
                     await executeCommand(bot, zoneTeleportCommand, commandDelayMilliseconds, applicationLogger)
                     isZoneTeleportPending = false
+                    return
                 }
             })
             .catch(error => {
-                applicationLogger.error('An error has occurred during the night sleep sequence:', error)
+                applicationLogger.error('The night sleep sequence failed:', error)
             })
     })
 }

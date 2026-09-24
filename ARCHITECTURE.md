@@ -151,7 +151,7 @@ The principal runtime sequence is:
 | `main` | Orchestrates schedule evaluations, bot instantiation, event listeners, command sequences, and teardown. | `mineflayer`, `fs`, `path` | Primary process orchestrator function. |
 | `executeCommand` | Dispatches in-game chat commands and pauses for specified delay intervals. | `mineflayer` Bot instance | Asynchronous helper function invoked during session execution. |
 | `registerNightSleepHandler` | Detects day and night transitions, evaluates sleep probability, and serialises sleep and return operations. | `mineflayer` time events | One listener per spawned bot session. |
-| `activateBedUnderBot` | Resolves and activates the bed block directly beneath the bot. | `mineflayer` block interaction API | Transient invocation during a selected night. |
+| `activateBedUnderBot` | Resolves and activates the first bed block at the bot position, directly beneath the bot, or within interaction range. | `mineflayer` block interaction API | Transient invocation during a selected night. |
 
 ## 🗂️ Architectural Areas
 
