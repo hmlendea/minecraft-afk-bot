@@ -334,10 +334,25 @@ test('activateBedUnderBot right clicks the bed directly beneath the bot', async 
     ])
     assert.strictEqual(bot.activatedBlocks.length, 1)
     assert.strictEqual(bot.activatedBlocks[0].name, 'red_bed')
-    assert.deepStrictEqual(recordingLogger.logMessages, [
+    assert.deepStrictEqual(recordingLogger.logMessages.slice(-2), [
         ['A bed block was found:', 'red_bed'],
-        ['Sleeping was initiated successfully.']
+        ['The bed activation request completed; this does not confirm sleep.', { isSleeping: null }]
     ])
+})
+
+test('activateBedUnderBot records the sleep state without treating activation as confirmation', async () => {
+    for (const isSleeping of [false, true]) {
+        const bot = createSleepBot()
+        const recordingLogger = createRecordingLogger()
+        bot.isSleeping = isSleeping
+
+        assert.strictEqual(await activateBedUnderBot(bot, recordingLogger), true)
+        assert.deepStrictEqual(recordingLogger.logMessages.at(-1), [
+            'The bed activation request completed; this does not confirm sleep.',
+            { isSleeping }
+        ])
+        assert.deepStrictEqual(recordingLogger.errorMessages, [])
+    }
 })
 
 test('activateBedUnderBot right clicks the bed at the bot position', async () => {
@@ -392,13 +407,15 @@ test('activateBedUnderBot returns false for a missing or non-bed block', async (
     const missingBedLogger = createRecordingLogger()
     missingBedBot.blockAt = () => null
     assert.strictEqual(await activateBedUnderBot(missingBedBot, missingBedLogger), false)
-    assert.deepStrictEqual(missingBedLogger.logMessages, [['No bed block was found within interaction range.']])
+    assert.deepStrictEqual(missingBedLogger.logMessages.at(-1), ['No bed block was found within interaction range.'])
+    assert.strictEqual(missingBedLogger.logMessages.filter(([message]) => message === 'Inspected a bed candidate:').length, 2)
 
     const nonBedBot = createSleepBot()
     const nonBedLogger = createRecordingLogger()
     nonBedBot.isABed = () => false
     assert.strictEqual(await activateBedUnderBot(nonBedBot, nonBedLogger), false)
-    assert.deepStrictEqual(nonBedLogger.logMessages, [['No bed block was found within interaction range.']])
+    assert.deepStrictEqual(nonBedLogger.logMessages.at(-1), ['No bed block was found within interaction range.'])
+    assert.strictEqual(nonBedLogger.logMessages.filter(([message]) => message === 'Inspected a bed candidate:').length, 2)
 })
 
 test('activateBedUnderBot logs and rethrows bed activation failures', async () => {
@@ -411,10 +428,92 @@ test('activateBedUnderBot logs and rethrows bed activation failures', async () =
 
     await assert.rejects(activateBedUnderBot(bot, recordingLogger), activationError)
 
-    assert.deepStrictEqual(recordingLogger.logMessages, [['A bed block was found:', 'red_bed']])
+    assert.deepStrictEqual(recordingLogger.logMessages.at(-1), ['A bed block was found:', 'red_bed'])
     assert.deepStrictEqual(recordingLogger.errorMessages, [
         ['Sleeping could not be initiated because bed activation failed:', activationError]
     ])
+})
+
+test('activateBedUnderBot logs world state and candidate block properties', async () => {
+    const bot = createSleepBot(false)
+    const recordingLogger = createRecordingLogger()
+    const position = { x: 16, y: 64, z: 32 }
+    const bedProperties = { occupied: true, part: 'head', facing: 'north' }
+    Object.assign(bot.entity.position, position)
+    Object.assign(bot.testPositions.bedPosition, position)
+    bot.game = { dimension: 'overworld' }
+    bot.time.timeOfDay = 13000
+    bot.isSleeping = false
+    bot.availableBlocks.get(bot.testPositions.bedPosition).getProperties = () => bedProperties
+
+    await activateBedUnderBot(bot, recordingLogger)
+
+    assert.deepStrictEqual(recordingLogger.logMessages.slice(0, 3), [
+        ['Searching for a bed within interaction range:', {
+            position, dimension: 'overworld', timeOfDay: 13000, isDay: false, isSleeping: false, interactionRange: 4.5
+        }],
+        ['Inspected a bed candidate:', {
+            position: { x: null, y: null, z: null }, blockName: null, isBed: false, properties: null
+        }],
+        ['Inspected a bed candidate:', { position, blockName: 'red_bed', isBed: true, properties: bedProperties }]
+    ])
+    bot.entity.position.x = 42
+    assert.strictEqual(recordingLogger.logMessages[0][1].position.x, position.x)
+})
+
+test('registerNightSleepHandler logs sleep and wake events separately from activation', async () => {
+    const bot = createSleepBot()
+    const recordingLogger = createRecordingLogger()
+    bot.isSleeping = false
+    registerNightSleepHandler(bot, { probability: 1 }, 0, TEST_ZONE_TELEPORT_COMMAND, () => 0, recordingLogger)
+
+    bot.time.isDay = false
+    bot.emit('time')
+    await waitForAsynchronousOperations()
+
+    assert.strictEqual(recordingLogger.logMessages.some(([message]) => message.includes('confirmed sleep')), false)
+    assert.strictEqual(recordingLogger.logMessages.some(([message]) => message === 'The bed command delay elapsed:'), true)
+    bot.isSleeping = true
+    bot.emit('sleep')
+    assert.deepStrictEqual(recordingLogger.logMessages.at(-1), [
+        'The server confirmed sleep via the sleep event.',
+        { position: { x: null, y: null, z: null }, dimension: null, timeOfDay: null, isDay: false, isSleeping: true }
+    ])
+
+    bot.isSleeping = false
+    bot.emit('wake')
+    assert.deepStrictEqual(recordingLogger.logMessages.at(-1), [
+        'The server reported waking via the wake event.',
+        { position: { x: null, y: null, z: null }, dimension: null, timeOfDay: null, isDay: false, isSleeping: false }
+    ])
+    assert.deepStrictEqual(bot.sentCommands, ['/bed'])
+    assert.strictEqual(bot.activatedBlocks.length, 1)
+})
+
+test('registerNightSleepHandler logs only recognised bed response keys without message contents', () => {
+    const bot = createSleepBot(false)
+    const recordingLogger = createRecordingLogger()
+    registerNightSleepHandler(bot, {}, 0, TEST_ZONE_TELEPORT_COMMAND, () => 0, recordingLogger)
+    const responseReasons = ['not_safe', 'not_valid', 'occupied', 'too_far_away', 'no_sleep', 'obstructed']
+
+    for (const responseReason of responseReasons) {
+        const translationKey = `block.minecraft.bed.${responseReason}`
+        bot.emit('message', { json: { translate: translationKey, with: ['private message'] } })
+        assert.deepStrictEqual(recordingLogger.logMessages.at(-1), [
+            'The server reported a bed response:', translationKey,
+            { position: { x: null, y: null, z: null }, dimension: null, timeOfDay: null, isDay: false, isSleeping: null }
+        ])
+    }
+
+    for (const message of [null, {}, { json: null }, { json: { translate: 42 } },
+        { json: { translate: 'chat.type.text', with: ['private message'] } },
+        { json: { text: '/auth private-password' } }, { json: { translate: 'block.minecraft.bed.private-password' } }]) {
+        bot.emit('message', message)
+    }
+
+    assert.strictEqual(recordingLogger.logMessages.length, responseReasons.length)
+    assert.deepStrictEqual(recordingLogger.errorMessages, [])
+    assert.deepStrictEqual(bot.sentCommands, [])
 })
 
 test('registerNightSleepHandler validates its dependencies', () => {

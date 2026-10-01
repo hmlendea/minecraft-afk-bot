@@ -49,6 +49,8 @@ node bot.js
 
 Runtime messages remain visible in the console and are appended to the file configured by `logging.filePath`. The default is `logfile.log` in the same directory as [bot.js](bot.js).
 
+Sleep diagnostics record the position, dimension, world time, and sleep state surrounding `/bed`, plus inspected block positions, names, and bed properties. A completed activation request does not confirm sleep: the separate `The server confirmed sleep via the sleep event.` record confirms that Mineflayer received the server's sleep event. Wake events and recognised bed rejection translation keys are recorded separately. Custom server messages and arbitrary chat content are excluded from these diagnostics.
+
 ## 🖥️ System Requirements
 
 | Component | Minimum | Recommended |
@@ -106,7 +108,7 @@ The subsequent settings are recognised:
 |------|---------|---------|-----------|----------|
 | Runtime diagnostics | Diagnose connection, command, and session events. | File selected by `logging.filePath`; defaults to `logfile.log` beside [bot.js](bot.js). | Appended until the operator truncates or deletes the file. | No |
 
-Authentication credentials supplied to `/auth` are redacted before diagnostics are emitted. Logs can contain operational details such as the configured server address and account username, so access to the file should be restricted. The generated file is excluded from version control by [.gitignore](.gitignore).
+Authentication credentials supplied to `/auth` are redacted prior to diagnostic emission. Logs can contain operational details such as the configured server address, account username, and in-game coordinates, so restrict access to the file. Bed response diagnostics include only recognised translation keys, without message text or translation arguments. The generated file is excluded from version control by [.gitignore](.gitignore).
 
 ### Data Locations
 

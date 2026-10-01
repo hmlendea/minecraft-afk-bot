@@ -27,6 +27,7 @@ const BED_SEARCH_POSITION_OFFSETS = Object.freeze([
 ])
 const AUTHENTICATION_COMMAND_PATTERN = /^\/auth(?:\s|$)/i
 const REDACTED_AUTHENTICATION_COMMAND = '/auth [REDACTED]'
+const BED_RESPONSE_TRANSLATION_PATTERN = /^block\.minecraft\.bed\.(?:not_safe|not_valid|occupied|too_far_away|no_sleep|obstructed)$/
 
 function ensureConfigurationExists(
     configurationFilePath = pathModule.join(__dirname, DEFAULT_CONFIGURATION_FILE_NAME),
@@ -145,6 +146,42 @@ function resolveSleepProbability(sleepConfiguration) {
     return sleepProbability
 }
 
+function getDiagnosticPosition(position) {
+    return {
+        x: position?.x ?? null,
+        y: position?.y ?? null,
+        z: position?.z ?? null
+    }
+}
+
+function getSleepDiagnosticState(bot) {
+    return {
+        position: getDiagnosticPosition(bot.entity?.position),
+        dimension: bot.game?.dimension ?? null,
+        timeOfDay: bot.time?.timeOfDay ?? null,
+        isDay: bot.time?.isDay ?? null,
+        isSleeping: bot.isSleeping ?? null
+    }
+}
+
+function registerSleepDiagnosticEvents(bot, applicationLogger) {
+    bot.on('sleep', () => {
+        applicationLogger.log('The server confirmed sleep via the sleep event.', getSleepDiagnosticState(bot))
+    })
+
+    bot.on('wake', () => {
+        applicationLogger.log('The server reported waking via the wake event.', getSleepDiagnosticState(bot))
+    })
+
+    bot.on('message', message => {
+        const translationKey = message?.json?.translate
+
+        if (typeof translationKey === 'string' && BED_RESPONSE_TRANSLATION_PATTERN.test(translationKey)) {
+            applicationLogger.log('The server reported a bed response:', translationKey, getSleepDiagnosticState(bot))
+        }
+    })
+}
+
 function* getReachableBedPositions(bot) {
     for (const positionOffset of BED_SEARCH_POSITION_OFFSETS) {
         yield bot.entity.position.offset(
@@ -180,12 +217,23 @@ async function activateBedUnderBot(bot, applicationLogger = defaultApplicationLo
         throw new TypeError('A valid bot instance with entity position and block interaction methods is required.')
     }
 
+    applicationLogger.log('Searching for a bed within interaction range:', {
+        ...getSleepDiagnosticState(bot),
+        interactionRange: BED_INTERACTION_RANGE
+    })
     const bedPositions = getReachableBedPositions(bot)
 
     for (const bedPosition of bedPositions) {
         const bedBlock = bot.blockAt(bedPosition)
+        const isBed = Boolean(bedBlock && bot.isABed(bedBlock))
+        applicationLogger.log('Inspected a bed candidate:', {
+            position: getDiagnosticPosition(bedPosition),
+            blockName: bedBlock?.name ?? null,
+            isBed,
+            properties: isBed ? bedBlock.getProperties?.() ?? null : null
+        })
 
-        if (!bedBlock || !bot.isABed(bedBlock)) {
+        if (!isBed) {
             continue
         }
 
@@ -193,7 +241,9 @@ async function activateBedUnderBot(bot, applicationLogger = defaultApplicationLo
 
         try {
             await bot.activateBlock(bedBlock)
-            applicationLogger.log('Sleeping was initiated successfully.')
+            applicationLogger.log('The bed activation request completed; this does not confirm sleep.', {
+                isSleeping: bot.isSleeping ?? null
+            })
             return true
         } catch (error) {
             applicationLogger.error('Sleeping could not be initiated because bed activation failed:', error)
@@ -229,6 +279,7 @@ function registerNightSleepHandler(
     let previousIsDay = typeof bot.time.isDay === 'boolean' ? bot.time.isDay : null
     let isZoneTeleportPending = false
     let transitionSequence = Promise.resolve()
+    registerSleepDiagnosticEvents(bot, applicationLogger)
 
     bot.on('time', () => {
         const currentIsDay = bot.time.isDay
@@ -246,6 +297,11 @@ function registerNightSleepHandler(
             return
         }
 
+        applicationLogger.log('The day/night state changed:', {
+            previousIsDay,
+            ...getSleepDiagnosticState(bot),
+            isZoneTeleportPending
+        })
         previousIsDay = currentIsDay
         transitionSequence = transitionSequence
             .then(async () => {
@@ -254,6 +310,7 @@ function registerNightSleepHandler(
                         return
                     }
 
+                    applicationLogger.log('Returning to the selected zone after the night:', getSleepDiagnosticState(bot))
                     await executeCommand(bot, zoneTeleportCommand, commandDelayMilliseconds, applicationLogger)
                     isZoneTeleportPending = false
                     return
@@ -264,8 +321,9 @@ function registerNightSleepHandler(
                     return
                 }
 
-                applicationLogger.log('Night sleep was selected. Issuing the bed command.')
+                applicationLogger.log('Night sleep was selected. Issuing the bed command.', getSleepDiagnosticState(bot))
                 await executeCommand(bot, BED_COMMAND, commandDelayMilliseconds, applicationLogger)
+                applicationLogger.log('The bed command delay elapsed:', getSleepDiagnosticState(bot))
                 isZoneTeleportPending = true
                 const wasBedActivated = await activateBedUnderBot(bot, applicationLogger)
 
