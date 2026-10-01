@@ -150,8 +150,8 @@ The principal runtime sequence is:
 | `isRestrictedByTimeWindow` | Evaluates whether current date and time fall within the restricted execution window. | Date API | Pure helper function invoked during main execution. |
 | `main` | Orchestrates schedule evaluations, bot instantiation, event listeners, command sequences, and teardown. | `mineflayer`, `fs`, `path` | Primary process orchestrator function. |
 | `executeCommand` | Dispatches in-game chat commands and pauses for specified delay intervals. | `mineflayer` Bot instance | Asynchronous helper function invoked during session execution. |
-| `registerNightSleepHandler` | Detects day and night transitions, evaluates sleep probability, and serialises sleep and return operations. | `mineflayer` time events | One listener per spawned bot session. |
-| `activateBedUnderBot` | Resolves and activates the bed block directly beneath the bot. | `mineflayer` block interaction API | Transient invocation during a selected night. |
+| `registerNightSleepHandler` | Detects day and night transitions, evaluates sleep probability, serialises sleep and return operations, and registers sleep diagnostics. | `mineflayer` time, sleep, wake, and message events | One listener per event per spawned bot session. |
+| `activateBedUnderBot` | Resolves and activates the first bed block at the bot position, directly beneath the bot, or within interaction range. | `mineflayer` block interaction API | Transient invocation during a selected night. |
 
 ## 🗂️ Architectural Areas
 
@@ -296,7 +296,7 @@ The handler records the preceding day state to suppress duplicate evaluations fr
 - No sensitive credentials or tokens are committed to version control.
 - [configuration.example.json](configuration.example.json) contains placeholder values for public inspection.
 - `/auth` arguments are replaced with `[REDACTED]` before command diagnostics reach the console or log file.
-- Runtime logs can contain server addresses, account usernames, and error details; operators control filesystem access and retention.
+- Runtime logs can contain server addresses, account usernames, in-game coordinates, and error details; operators control filesystem access and retention.
 
 ### Error Handling
 
@@ -308,6 +308,9 @@ The handler records the preceding day state to suppress duplicate evaluations fr
 
 - [logger.js](logger.js) mirrors informational messages to standard output and errors to standard error.
 - Every mirrored message is appended synchronously to the configured log file with a seven-digit ISO 8601 timestamp and `INFO` or `ERROR` severity.
+- Sleep diagnostics capture position, dimension, world time, and sleep state surrounding the bed command and day/night transitions, together with inspected block positions, names, and bed properties.
+- A completed `activateBlock` request is not sleep confirmation. Separate `sleep` and `wake` event records report server-observed state; diagnostics do not change command timing or wait for sleep confirmation.
+- Bed response logging accepts only recognised `block.minecraft.bed` rejection translation keys from message components. Arbitrary chat, custom server messages, and translation arguments are excluded.
 - Logging has no rotation or retention automation; the operator owns file maintenance.
 
 ### Configuration
