@@ -1,4 +1,5 @@
 [![Donate](https://img.shields.io/badge/-%E2%99%A5%20Donate-%23ff69b4)](https://hmlendea.go.ro/funding)
+[![Latest Release](https://img.shields.io/github/v/release/hmlendea/minecraft-afk-bot)](https://github.com/hmlendea/minecraft-afk-bot/releases)
 [![Build Status](https://github.com/hmlendea/minecraft-afk-bot/actions/workflows/build.yml/badge.svg)](https://github.com/hmlendea/minecraft-afk-bot/actions/workflows/build.yml)
 [![License](https://img.shields.io/github/license/hmlendea/minecraft-afk-bot)](https://github.com/hmlendea/minecraft-afk-bot/blob/master/LICENSE)
 
@@ -25,6 +26,7 @@ An automated Minecraft AFK bot powered by Mineflayer to maintain active presence
   - [Test](#test)
   - [Dependencies](#dependencies)
 - [Architecture](#-architecture)
+- [Documentation](#-documentation)
 - [Contributing](#-contributing)
 - [Security](#-security)
 - [Project Engagement](#-project-engagement)
@@ -53,9 +55,9 @@ Sleep diagnostics record the position, dimension, world time, and sleep state su
 
 ## 🖥️ System Requirements
 
-| Component | Minimum | Recommended |
-|-----------|---------|-------------|
-| Node.js | v18.0.0 | v20.0.0 or later |
+| Component | Minimum | Recommended      |
+|-----------|---------|------------------|
+| Node.js   | v18.0.0 | v20.0.0 or later |
 
 ## 📦 Installation
 
@@ -158,6 +160,22 @@ npm test
 
 See the [architecture documentation](./ARCHITECTURE.md) for the system context, principal components, runtime flows, ownership boundaries, dependencies, constraints, and extension points.
 
+## 📚 Documentation
+
+Full documentation is available in the [`docs/`](./docs/) directory:
+
+- [Documentation Index](./docs/INDEX.md) — Master navigation
+- [Quick Start](./docs/quick-start.md) — Minimal setup steps
+- [Configuration Reference](./docs/configuration.md) — Complete schema
+- [API Reference](./docs/api-reference/INDEX.md) — Module-by-module symbols
+- [Behaviours](./docs/behaviour/INDEX.md) — Sleep, teleport, schedule
+- [Flows](./docs/flows/INDEX.md) — Session lifecycle, night sleep
+- [Testing](./docs/testing.md) — Test framework and patterns
+- [Build & Deployment](./docs/build-and-deployment.md) — systemd, Docker, cron
+- [Security](./docs/security.md) — Threat model, credentials
+- [Troubleshooting](./docs/troubleshooting.md) — Common issues
+- [FAQ](./docs/faq.md) — Frequently asked questions
+
 ## 🤝 Contributing
 
 You are welcome to submit any suggestion, feedback, or modification to this project.
@@ -168,11 +186,14 @@ When doing so, please:
 - Maintain your branch synchronised with `master`
 - Revise the documentation when functionality changes
 
-## � Security
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for contribution guidelines, code style, testing, and pull request process.
+
+## 🔐 Security
 
 For information on reporting security vulnerabilities, see [SECURITY.md](./SECURITY.md).
+For the security threat model and credential handling, see [docs/security.md](./docs/security.md).
 
-## �💝 Project Engagement
+## 💝 Project Engagement
 
 Discovered a problem or have a suggestion? [Open an issue](https://github.com/hmlendea/minecraft-afk-bot/issues)!
 
