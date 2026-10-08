@@ -49,6 +49,8 @@ node bot.js
 
 Runtime messages remain visible in the console and are appended to the file configured by `logging.filePath`. The default is `logfile.log` in the same directory as [bot.js](bot.js).
 
+Sleep diagnostics record the position, dimension, world time, and sleep state surrounding `/bed`, plus inspected block positions, names, and bed properties. A completed activation request does not confirm sleep: the separate `The server confirmed sleep via the sleep event.` record confirms that Mineflayer received the server's sleep event. Wake events and recognised bed rejection translation keys are recorded separately. Custom server messages and arbitrary chat content are excluded from these diagnostics.
+
 ## 🖥️ System Requirements
 
 | Component | Minimum | Recommended |
@@ -94,7 +96,7 @@ The subsequent settings are recognised:
 | `schedule` | `endHour` | `Number` | `17` | Yes | End hour (0-23) of the restricted execution window. |
 | `schedule` | `endMinute` | `Number` | `0` | Yes | End minute (0-59) of the restricted execution window. |
 | `schedule` | `skipProbability` | `Number` | `0.8` | Yes | Probability (0.0 to 1.0) of randomly skipping execution. |
-| `sleep` | `probability` | `Number` | `0.65` | No | Probability (0.0 to 1.0) of using `/bed` and the bed beneath the bot when night starts. |
+| `sleep` | `probability` | `Number` | `0.65` | No | Probability (0.0 to 1.0) of using `/bed` and a reachable bed when night starts. |
 | `session` | `minimumOnlineMinutes` | `Number` | `30` | Yes | Minimum online session duration in minutes. |
 | `session` | `maximumOnlineMinutes` | `Number` | `120` | Yes | Maximum online session duration in minutes. |
 | `session` | `spawnDelayMilliseconds` | `Number` | `5000` | Yes | Delay in milliseconds after spawn prior to executing commands. |
@@ -106,7 +108,7 @@ The subsequent settings are recognised:
 |------|---------|---------|-----------|----------|
 | Runtime diagnostics | Diagnose connection, command, and session events. | File selected by `logging.filePath`; defaults to `logfile.log` beside [bot.js](bot.js). | Appended until the operator truncates or deletes the file. | No |
 
-Authentication credentials supplied to `/auth` are redacted before diagnostics are emitted. Logs can contain operational details such as the configured server address and account username, so access to the file should be restricted. The generated file is excluded from version control by [.gitignore](.gitignore).
+Authentication credentials supplied to `/auth` are redacted prior to diagnostic emission. Logs can contain operational details such as the configured server address, account username, and in-game coordinates, so restrict access to the file. Bed response diagnostics include only recognised translation keys, without message text or translation arguments. The generated file is excluded from version control by [.gitignore](.gitignore).
 
 ### Data Locations
 
