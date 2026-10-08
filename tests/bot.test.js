@@ -48,6 +48,7 @@ function createSleepBot(initialIsDay = true) {
     const availableBlocks = new Map([[bedPosition, bedBlock]])
 
     bot.time = { isDay: initialIsDay }
+    bot.game = { dimension: 'overworld' }
     bot.sentCommands = []
     bot.activatedBlocks = []
     bot.requestedBlockPositions = []
@@ -477,14 +478,14 @@ test('registerNightSleepHandler logs sleep and wake events separately from activ
     bot.emit('sleep')
     assert.deepStrictEqual(recordingLogger.logMessages.at(-1), [
         'The server confirmed sleep via the sleep event.',
-        { position: { x: null, y: null, z: null }, dimension: null, timeOfDay: null, isDay: false, isSleeping: true }
+        { position: { x: null, y: null, z: null }, dimension: 'overworld', timeOfDay: null, isDay: false, isSleeping: true }
     ])
 
     bot.isSleeping = false
     bot.emit('wake')
     assert.deepStrictEqual(recordingLogger.logMessages.at(-1), [
         'The server reported waking via the wake event.',
-        { position: { x: null, y: null, z: null }, dimension: null, timeOfDay: null, isDay: false, isSleeping: false }
+        { position: { x: null, y: null, z: null }, dimension: 'overworld', timeOfDay: null, isDay: false, isSleeping: false }
     ])
     assert.deepStrictEqual(bot.sentCommands, ['/bed'])
     assert.strictEqual(bot.activatedBlocks.length, 1)
@@ -501,7 +502,7 @@ test('registerNightSleepHandler logs only recognised bed response keys without m
         bot.emit('message', { json: { translate: translationKey, with: ['private message'] } })
         assert.deepStrictEqual(recordingLogger.logMessages.at(-1), [
             'The server reported a bed response:', translationKey,
-            { position: { x: null, y: null, z: null }, dimension: null, timeOfDay: null, isDay: false, isSleeping: null }
+            { position: { x: null, y: null, z: null }, dimension: 'overworld', timeOfDay: null, isDay: false, isSleeping: null }
         ])
     }
 
@@ -641,6 +642,75 @@ test('registerNightSleepHandler teleports to the zone immediately when no bed is
     await waitForAsynchronousOperations()
 
     assert.deepStrictEqual(bot.sentCommands, ['/bed', TEST_ZONE_TELEPORT_COMMAND])
+})
+
+test('registerNightSleepHandler skips sleep when not in the overworld', async () => {
+    const bot = createSleepBot()
+    bot.game.dimension = 'the_nether'
+
+    registerNightSleepHandler(
+        bot,
+        { probability: 1 },
+        0,
+        TEST_ZONE_TELEPORT_COMMAND,
+        () => 0,
+        silentLogger
+    )
+
+    bot.time.isDay = false
+    bot.emit('time')
+    await waitForAsynchronousOperations()
+
+    assert.deepStrictEqual(bot.sentCommands, [])
+    assert.deepStrictEqual(bot.activatedBlocks, [])
+
+    bot.time.isDay = true
+    bot.emit('time')
+    await waitForAsynchronousOperations()
+
+    assert.deepStrictEqual(bot.sentCommands, [])
+})
+
+test('registerNightSleepHandler skips sleep when in the end dimension', async () => {
+    const bot = createSleepBot()
+    bot.game.dimension = 'the_end'
+
+    registerNightSleepHandler(
+        bot,
+        { probability: 1 },
+        0,
+        TEST_ZONE_TELEPORT_COMMAND,
+        () => 0,
+        silentLogger
+    )
+
+    bot.time.isDay = false
+    bot.emit('time')
+    await waitForAsynchronousOperations()
+
+    assert.deepStrictEqual(bot.sentCommands, [])
+    assert.deepStrictEqual(bot.activatedBlocks, [])
+})
+
+test('registerNightSleepHandler sleeps when in the overworld with namespaced dimension', async () => {
+    const bot = createSleepBot()
+    bot.game.dimension = 'minecraft:overworld'
+
+    registerNightSleepHandler(
+        bot,
+        { probability: 1 },
+        0,
+        TEST_ZONE_TELEPORT_COMMAND,
+        () => 0,
+        silentLogger
+    )
+
+    bot.time.isDay = false
+    bot.emit('time')
+    await waitForAsynchronousOperations()
+
+    assert.deepStrictEqual(bot.sentCommands, ['/bed'])
+    assert.strictEqual(bot.activatedBlocks.length, 1)
 })
 
 test('ensureConfigurationExists creates target file from template when missing', () => {

@@ -316,6 +316,17 @@ function registerNightSleepHandler(
                     return
                 }
 
+                const currentDimension = bot.game?.dimension ?? null
+                const isOverworld = currentDimension === 'overworld' || currentDimension === 'minecraft:overworld'
+
+                if (!isOverworld) {
+                    applicationLogger.log('Night sleep was skipped because the bot is not in the overworld.', {
+                        ...getSleepDiagnosticState(bot),
+                        dimension: currentDimension
+                    })
+                    return
+                }
+
                 if (randomSupplier() >= sleepProbability) {
                     applicationLogger.log('Night sleep was skipped because the configured probability condition was not met.')
                     return
